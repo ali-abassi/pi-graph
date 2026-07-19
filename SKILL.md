@@ -5,7 +5,7 @@ description: "Create or use deterministic Pi workflow graphs for repeatable mult
 
 # Deterministic Workflows
 
-The failure this prevents: an agent given N steps skips some, reorders them, or declares done early. The structural fix: **the model never owns control flow** — a runner calls the model once per step, gates decide pass/fail, artifacts chain between steps. Same yaml + same inputs → same path, every run, 1 time or 500.
+The failure this prevents: an agent given N steps skips some, reorders them, or declares done early. The structural fix: **the model never owns control flow** — a runner calls the model once per step, gates decide pass/fail, artifacts chain between steps. The graph transition logic is deterministic for the same validated node outputs; model outputs can vary, so pin models, gate them, and retain run evidence instead of promising identical paths across live LLM calls.
 
 CLI: `piw`. Runner: `scripts/run_steps.py`. No compilation or certification is
 required for the normal path. Run `piw schema` for the concise node/input

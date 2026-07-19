@@ -2,6 +2,12 @@
 
 All notable changes to Pi Workflows are documented here.
 
+## 0.1.3 — 2026-07-19
+
+- Corrected the public determinism claim: graph transitions are mechanical for
+  validated outputs, while live LLM outputs and output-dependent branches can
+  vary and must be pinned, gated, and evidenced.
+
 ## 0.1.2 — 2026-07-19
 
 - Aligned package, skill, extension, JSON transport, and security behavior with
