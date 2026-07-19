@@ -29,7 +29,7 @@ class PublicExampleTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             report = json.loads((out / "report.json").read_text(encoding="utf-8"))
-            self.assertEqual(report["validated"], 12)
+            self.assertEqual(report["validated"], 13)
             self.assertEqual(report["model"], "openai-codex/gpt-5.6-luna")
             self.assertEqual(report["thinking"], "medium")
             self.assertEqual(report["liveRuns"], 0)

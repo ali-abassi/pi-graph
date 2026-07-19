@@ -3,7 +3,6 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ali-abassi/pi-workflows/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ali-abassi/pi-workflows/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/ali-abassi/pi-workflows/releases"><img alt="release" src="https://img.shields.io/github/v/release/ali-abassi/pi-workflows"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-11110f"></a>
 </p>
@@ -17,7 +16,8 @@ routes, gates, retries, evidence, and cost. Models produce or review artifacts,
 but code decides what runs and whether it passed.
 
 An agent can create a workflow, validate it before spending tokens, run the
-whole graph or one action, test it across a corpus, compare models, inspect
+whole graph or one action, run the exact graph over 1,000 isolated items,
+compare models, inspect
 every attempt, and find the next cost or latency hotspot. The result is
 repeatable agent work without pretending model output itself is deterministic.
 
@@ -34,6 +34,9 @@ repeatable agent work without pretending model output itself is deterministic.
   rejected attempts, stderr, tokens, cost, time, cache state, and Git history.
 - **Built-in evaluation.** Run corpora, compare models while holding judges
   fixed, inspect regressions, and optimize the most expensive nodes first.
+- **Bulk without babysitting.** Freeze one validated graph, execute it for every
+  item with bounded concurrency, resume only unfinished items, and receive one
+  machine-readable proof that all items followed the contract.
 - **Portable by default.** The CLI and YAML format work without Agent X or
   Loops. Pi, Codex, and Claude Code discover the same installed skill.
 
@@ -48,6 +51,54 @@ flowchart LR
   E --> O["Evaluate + optimize"]
   O --> A
 ```
+
+## Where it shines: one exact workflow, 1,000 items
+
+This is the primary use case. Tell an agent, “run these five steps exactly for
+these 1,000 records.” The agent validates the graph once, canaries a few items,
+then starts a detached bulk job. Pi Workflows—not the agent—owns the queue,
+ordering, retries, isolation, and completion accounting.
+
+```bash
+cd examples/workflows/13-thousand-item-pipeline
+python3 generate_corpus.py --count 1000
+
+# Cheap canary before committing the whole corpus
+piw batch steps.yaml --inputs corpus.jsonl --limit 5 --require-all
+
+# Run all 1,000 in the background with 16 isolated items in flight
+piw batch steps.yaml --inputs corpus.jsonl --parallel 16 \
+  --require-all --stop-after-failures 3 --detach --json
+
+# The launch receipt returns this exact status command
+piw batch-status /path/to/batch-dir --json
+```
+
+```mermaid
+flowchart LR
+  A["Agent validates steps.yaml once"] --> F["Freeze graph + corpus digests"]
+  F --> Q["Bounded item queue"]
+  Q --> I1["item 0001 · steps 1→5"]
+  Q --> I2["item 0002 · steps 1→5"]
+  Q --> IX["item 1000 · steps 1→5"]
+  I1 --> R["Per-item artifacts + events + ledger"]
+  I2 --> R
+  IX --> R
+  R --> P{"1,000 complete contracts?"}
+  P -->|yes| D["Batch passes"]
+  P -->|no| X["Resume only failed or unfinished items"]
+```
+
+Every item receives its own immutable input, attempt directory, event stream,
+artifacts, gate results, token/cost ledger, and result receipt. The batch
+manifest pins the workflow and corpus digests; `--resume` fails closed if
+either changed. Item-level Git history is off by default at bulk scale because
+the event and artifact ledgers already preserve the execution proof; opt in
+with `--git-history` when that extra storage is worth it.
+
+`--parallel` controls concurrent **items**. `workers:` in `steps.yaml` controls
+parallel nodes **inside each item**. Their product is the maximum potential
+step concurrency, so increase them deliberately.
 
 ## Studio UI
 
@@ -209,8 +260,8 @@ valid-but-wrong model response cannot silently send work down the wrong path.
 # Run one action fresh; upstream artifacts may come from cache
 piw run steps.yaml --node draft
 
-# Run the same graph across a corpus
-piw batch steps.yaml --inputs evals.jsonl --input-file input.txt
+# Run the exact graph across a corpus; fail if any declared step is skipped
+piw batch steps.yaml --inputs items.jsonl --require-all --parallel 8
 
 # Compare models while holding the workflow and judges fixed
 piw eval steps.yaml --inputs evals.jsonl --input-file input.txt \
@@ -226,9 +277,10 @@ artifacts blindly.
 
 ## Examples
 
-The [`examples/`](examples/) catalog contains 12 runnable workflows, from two
+The [`examples/`](examples/) catalog contains 13 runnable workflows, from two
 shell steps to parallel agents, typed routing, tool allowlists, bounded judge
-loops, final QA, caching, and cost analysis.
+loops, final QA, caching, cost analysis, and an exact five-step 1,000-item bulk
+pipeline.
 
 ```bash
 python3 scripts/run_example_suite.py --validate-only  # free contract check
@@ -249,6 +301,9 @@ piw ls [--json]                   discover workflows
 piw graph <workflow> [--json]     inspect the DAG
 piw validate <workflow> [--json]  fail closed before a paid run
 piw run <workflow>                execute and stream node evidence
+piw batch <workflow>              run the graph over an isolated input corpus
+piw batch-status <dir>            inspect a detached bulk job
+piw batch-cancel <dir>            stop a detached bulk job
 piw ui <workflow>                 open the optional local graph studio
 piw detail <workflow>             inspect the latest run
 piw show <workflow> <step>        print one artifact

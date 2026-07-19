@@ -85,6 +85,18 @@ Command nodes and gates receive:
 Judge prompts additionally receive `{out}`. Final `qa.prompt` receives
 `{artifacts}`. Both also receive `{run}`.
 
+## Bulk execution
+
+`piw batch` freezes the validated `steps.yaml`, snapshots a corpus digest, and
+runs that exact graph once per item through the canonical runner. Each item has
+an immutable input and numbered attempt directories. The aggregate receipt
+records expected, passed, failed, skipped, and terminal steps per item.
+
+Use `--require-all` when the contract says every declared node must run; a
+deterministic route that skips a node then fails that item intentionally. Use
+`--resume <batch-dir>` after interruption or repair: already-passed items are
+not repeated, while graph or corpus drift is rejected before execution.
+
 ## Dependencies, routes, and output contracts
 
 - `needs: [a, b]` waits for both nodes. `needs: []` creates a root node.

@@ -7,6 +7,10 @@ extension registers `pi_workflows`; it never overrides a built-in tool. It uses
 Pi's `exec` API, forwards cancellation, throws on non-zero CLI exit, and returns
 bounded text plus structured command details.
 
+The native tool can canary or detach a large `batch` corpus. `batch-status`
+returns compact progress without holding a model turn open, and `batch-cancel`
+stops the detached controller process group.
+
 This follows Pi's documented package contract: resources are declared under the
 `pi` manifest, Pi-owned imports are `peerDependencies` with `"*"`, and custom
 tool output is truncated with Pi's own helpers. Pi packages execute with the

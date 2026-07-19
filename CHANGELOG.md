@@ -2,6 +2,22 @@
 
 All notable changes to Pi Workflows are documented here.
 
+## 0.3.0 — 2026-07-19
+
+- Made agent-triggered bulk execution a first-class product path: frozen graph
+  and corpus receipts, bounded item concurrency, isolated attempts, detached
+  launch, compact status, cancellation, failure ceilings, and drift-safe resume.
+- Fixed the previous batch runner dropping corpus content instead of passing it
+  through the workflow's immutable `{input}` and `$INPUT` contract.
+- Added per-item proof of expected, passed, failed, skipped, and terminal nodes;
+  `--require-all` makes “run these exact five steps” mechanically enforceable.
+- Added the runnable five-step/1,000-item example and a scale verification path.
+- Disabled per-item Git repositories by default in bulk mode to avoid thousands
+  of redundant commits; events, artifacts, and ledgers remain complete, with
+  `--git-history` available when desired.
+- Removed hosted CI automation. Workflows are triggered by agents or operators;
+  Pi Workflows itself owns execution and evidence.
+
 ## 0.2.0 — 2026-07-19
 
 - Added the optional `piw ui` Studio: canonical graph rendering, exact node
@@ -57,4 +73,4 @@ All notable changes to Pi Workflows are documented here.
 
 - First public release of the standalone Pi Workflows product.
 - Added the versioned YAML contract, JSON Schema, native Pi tool, installer,
-  deterministic runner, Loops/Agent X integration boundary, and public CI.
+  deterministic runner, and Loops/Agent X integration boundary.

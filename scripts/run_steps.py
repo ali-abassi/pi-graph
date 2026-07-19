@@ -99,6 +99,7 @@ def log(run_dir: Path, line: str) -> None:
 # existing callers are unaffected; log.md and the ledger are untouched either
 # way. Consumers tail the file to follow a run step by step.
 GIT_TIMEOUT_SECONDS = 20
+HISTORY_ENABLED = True
 
 EVENTS_LOCK = threading.Lock()
 EVENTS_PATH: Path | None = None
@@ -465,7 +466,10 @@ class Runner:
             passed = True
         if passed and key and self.cache_dir:
             self.cache_dir.mkdir(exist_ok=True)
-            (self.cache_dir / f"{key}.md").write_text(out_file.read_text())
+            cache_file = self.cache_dir / f"{key}.md"
+            temporary = self.cache_dir / f".{key}.{os.getpid()}.{threading.get_ident()}.tmp"
+            temporary.write_text(out_file.read_text())
+            os.replace(temporary, cache_file)
         if passed:
             produced = copy_produced(step, self.cwd, self.run_dir)
             if produced:
@@ -776,6 +780,9 @@ def git_commit(run_dir: Path, message: str) -> None:
     """Every run dir is a git repo; every step completion is a commit.
     Model output, merges, and operator hand-edits all become diffable history
     (`git -C <run> log --stat`). Silently no-ops if git is unavailable."""
+    if not HISTORY_ENABLED:
+        return
+
     # Every call is bounded and gets a closed stdin. History is a nice-to-have;
     # a git that stalls (index lock, credential/askpass prompt, slow filesystem)
     # must never be able to hang the workflow itself. On timeout we simply skip
@@ -824,12 +831,19 @@ def main() -> int:
     ap.add_argument("--verify", action="store_true")
     ap.add_argument("--regen", default="", help="comma-separated step ids to force fresh (bypass cache read)")
     ap.add_argument("--no-cache", action="store_true")
+    ap.add_argument("--no-history", action="store_true",
+                    help="skip per-step Git commits (bulk runs retain events and ledgers)")
+    ap.add_argument("--cwd", type=Path,
+                    help="execution cwd override for a frozen workflow snapshot")
     input_group = ap.add_mutually_exclusive_group()
     input_group.add_argument("--input", help="immutable text input copied into this run")
     input_group.add_argument("--input-file", type=Path, help="immutable file input copied into this run")
     ap.add_argument("--events", type=Path, default=None,
                     help="append a JSONL event stream here so a UI can follow the run live")
     args = ap.parse_args()
+
+    global HISTORY_ENABLED
+    HISTORY_ENABLED = not args.no_history
 
     if args.events:
         global EVENTS_PATH
@@ -854,7 +868,11 @@ def main() -> int:
     if (args.from_id or args.verify) and not args.run_dir:
         raise SystemExit("--from/--verify require --run-dir")
 
-    cwd = (args.steps_file.parent / spec.get("cwd", ".")).resolve()
+    cwd = args.cwd.expanduser().resolve() if args.cwd else (
+        args.steps_file.parent / spec.get("cwd", ".")
+    ).resolve()
+    if not cwd.is_dir():
+        raise SystemExit(f"workflow cwd not found: {cwd}")
     workflow = spec.get("workflow", args.steps_file.stem)
     run_dir = (args.run_dir or args.steps_file.parent / "runs" /
                f"{workflow}-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}").resolve()

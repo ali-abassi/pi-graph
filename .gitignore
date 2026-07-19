@@ -15,3 +15,5 @@ cache/
 certification/
 optimization/
 .artifacts/
+batch-*/
+examples/workflows/13-thousand-item-pipeline/corpus.jsonl

@@ -1113,7 +1113,7 @@ def fixture_artifact(kind: str, context: dict[str, Any], improved: bool) -> dict
             "observability": ("Workers Logs, traces, and AI Gateway logs", "Cross-system run diagnostics"),
             "security": ("Cloudflare WAF, Turnstile, server authorization, and rate limits", "Public and tenant trust boundaries"),
             "testing": ("Vitest, Workers local preview, and Playwright", "Logic, runtime, and user-flow proof"),
-            "ci-cd": ("GitHub Actions with Wrangler", "Verified preview and production promotion"),
+            "ci-cd": ("Project-native CI", "Verified preview and production promotion"),
             "secrets": ("Cloudflare Workers Secrets or Secrets Store", "Runtime credentials"),
         }
         value.update({

@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-const ACTIONS = ["doctor", "schema", "list", "create", "graph", "path", "validate", "run", "runs", "detail", "show", "stats", "schedule", "automations", "automation"] as const;
+const ACTIONS = ["doctor", "schema", "list", "create", "graph", "path", "validate", "run", "batch", "batch-status", "batch-cancel", "runs", "detail", "show", "stats", "schedule", "automations", "automation"] as const;
 const PIW = fileURLToPath(new URL("../bin/piw", import.meta.url));
 const TOOL_MAX_LINES = 500;
 const TOOL_MAX_BYTES = 24 * 1024;
@@ -38,7 +38,7 @@ export function argumentsFor(params: Record<string, unknown>): string[] {
   if (!(ACTIONS as readonly string[]).includes(action)) throw new Error(`unsupported Pi Workflows action: ${action}`);
   const command = action === "list" ? "ls" : action;
   const args = [command];
-  if (!["ls", "doctor", "schema", "create", "automations", "automation"].includes(command)) {
+  if (!["ls", "doctor", "schema", "create", "batch-status", "batch-cancel", "automations", "automation"].includes(command)) {
     const workflow = typeof params.workflow === "string" ? params.workflow.trim() : "";
     if (!workflow) throw new Error(`${action} requires a workflow id or unique name`);
     args.push(workflow);
@@ -68,6 +68,29 @@ export function argumentsFor(params: Record<string, unknown>): string[] {
     if (inputFile) args.push("--input-file", inputFile);
     if (params.noCache === true) args.push("--no-cache");
   }
+  if (command === "batch") {
+    const inputs = typeof params.inputs === "string" ? params.inputs.trim() : "";
+    if (!inputs) throw new Error("batch requires an inputs corpus path");
+    args.push("--inputs", inputs);
+    if (typeof params.inputFile === "string" && params.inputFile.trim()) args.push("--input-file", params.inputFile.trim());
+    if (params.parallel !== undefined) args.push("--parallel", String(params.parallel));
+    if (params.limit !== undefined) args.push("--limit", String(params.limit));
+    const out = typeof params.out === "string" ? params.out.trim() : "";
+    const resume = typeof params.resume === "string" ? params.resume.trim() : "";
+    if (out && resume) throw new Error("batch accepts out or resume, not both");
+    if (out) args.push("--out", out);
+    if (resume) args.push("--resume", resume);
+    if (params.requireAll === true) args.push("--require-all");
+    if (params.stopAfterFailures !== undefined) args.push("--stop-after-failures", String(params.stopAfterFailures));
+    if (params.itemTimeoutSeconds !== undefined) args.push("--item-timeout", String(params.itemTimeoutSeconds));
+    if (params.gitHistory === true) args.push("--git-history");
+    if (params.detach === true) args.push("--detach");
+  }
+  if (command === "batch-status" || command === "batch-cancel") {
+    const batchDirectory = typeof params.batchDirectory === "string" ? params.batchDirectory.trim() : "";
+    if (!batchDirectory) throw new Error(`${command} requires a batchDirectory`);
+    args.push(batchDirectory);
+  }
   if (command === "schedule") {
     const interval = params.intervalMinutes === undefined ? undefined : Number(params.intervalMinutes);
     const daily = typeof params.daily === "string" ? params.daily.trim() : "";
@@ -93,11 +116,12 @@ export default function piWorkflows(pi: ExtensionAPI) {
   pi.registerTool({
     name: "pi_workflows",
     label: "Pi Workflows",
-    description: `Create, validate, run, and inspect deterministic Pi workflow graphs. Use workflows for repeatable multi-step work whose ordering, gates, routes, evidence, or schedule must be mechanical rather than remembered by a model. Output is limited to ${TOOL_MAX_LINES} lines or ${formatSize(TOOL_MAX_BYTES)}; complete truncated output is saved to a temporary file.`,
+    description: `Create, validate, run, and inspect deterministic Pi workflow graphs, including resumable bulk execution over large input corpora. Use workflows for repeatable multi-step work whose ordering, gates, routes, evidence, or schedule must be mechanical rather than remembered by a model. Output is limited to ${TOOL_MAX_LINES} lines or ${formatSize(TOOL_MAX_BYTES)}; complete truncated output is saved to a temporary file.`,
     promptSnippet: "Operate deterministic workflow DAGs with explicit gates and evidence",
     promptGuidelines: [
       "Use pi_workflows validate before pi_workflows run; validation is free and failed validation must block paid execution.",
       "Use pi_workflows detail, show, and stats to verify artifacts, gates, cost, and cache behavior instead of inferring success from a process exit alone.",
+      "For many inputs, canary with batch limit first, then use batch with detach and requireAll; poll batch-status until every item has a complete execution contract.",
       "Use pi_workflows schedule only after validation and one successful manual smoke; scheduling validates again and fails closed.",
       "Use pi_workflows only when a repeatable graph earns its complexity; use ordinary tools for a one-step task.",
     ],
@@ -114,6 +138,17 @@ export default function piWorkflows(pi: ExtensionAPI) {
       node: Type.Optional(Type.String({ maxLength: 200 })),
       input: Type.Optional(Type.String({ maxLength: 100_000 })),
       inputFile: Type.Optional(Type.String({ maxLength: 2_000 })),
+      inputs: Type.Optional(Type.String({ maxLength: 2_000 })),
+      parallel: Type.Optional(Type.Integer({ minimum: 1, maximum: 32 })),
+      limit: Type.Optional(Type.Integer({ minimum: 1 })),
+      out: Type.Optional(Type.String({ maxLength: 2_000 })),
+      resume: Type.Optional(Type.String({ maxLength: 2_000 })),
+      requireAll: Type.Optional(Type.Boolean()),
+      stopAfterFailures: Type.Optional(Type.Integer({ minimum: 1 })),
+      itemTimeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 86_400 })),
+      gitHistory: Type.Optional(Type.Boolean()),
+      detach: Type.Optional(Type.Boolean()),
+      batchDirectory: Type.Optional(Type.String({ maxLength: 2_000 })),
       noCache: Type.Optional(Type.Boolean()),
       resolved: Type.Optional(Type.Boolean()),
       intervalMinutes: Type.Optional(Type.Integer({ minimum: 1 })),

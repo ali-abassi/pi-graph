@@ -30,6 +30,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import textwrap
@@ -942,19 +943,114 @@ def _run_skill(script: str, workflow: dict[str, Any], extra: list[str]) -> int:
     if not path.is_file():
         return fail(f"{script} not found at {path}")
     command = [sys.executable, str(path), str(workflow["path"]), *extra]
-    out(f"$ {' '.join(command[1:])}")
+    if "--json" not in extra:
+        out(f"$ {' '.join(command[1:])}")
     return subprocess.run(command, cwd=workflow["cwd"], check=False).returncode
 
 
 def cmd_batch(args) -> int:
-    """Run a workflow across a corpus of inputs (wraps the skill's run_batch.py)."""
+    """Run one frozen workflow contract across an isolated input corpus."""
     workflow = need(args.workflow)
-    extra = ["--inputs", args.inputs, "--input-file", args.input_file]
-    if args.parallel:
-        extra += ["--parallel", str(args.parallel)]
+    inputs = str(Path(args.inputs).expanduser().resolve())
+    extra = ["--inputs", inputs, "--input-file", args.input_file,
+             "--parallel", str(args.parallel), "--item-timeout", str(args.item_timeout)]
     if args.limit:
         extra += ["--limit", str(args.limit)]
+    if args.out:
+        extra += ["--out", str(Path(args.out).expanduser().resolve())]
+    if args.resume:
+        extra += ["--resume", str(Path(args.resume).expanduser().resolve())]
+    if args.require_all:
+        extra.append("--require-all")
+    if args.stop_after_failures:
+        extra += ["--stop-after-failures", str(args.stop_after_failures)]
+    if args.git_history:
+        extra.append("--git-history")
+    if args.detach:
+        extra.append("--detach")
+    if args.json:
+        extra.append("--json")
     return _run_skill("run_batch.py", workflow, extra)
+
+
+def _batch_state(path: Path) -> dict[str, Any]:
+    path = path.expanduser().resolve()
+    if not path.is_dir():
+        raise ValueError(f"batch directory not found: {path}")
+    progress_path = path / "progress.json"
+    controller_path = path / "controller.json"
+    source = progress_path if progress_path.is_file() else controller_path
+    if not source.is_file():
+        raise ValueError(f"batch has no controller or progress receipt: {path}")
+    value = json.loads(source.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"malformed batch receipt: {source}")
+    controller = {}
+    if controller_path.is_file():
+        candidate = json.loads(controller_path.read_text(encoding="utf-8"))
+        controller = candidate if isinstance(candidate, dict) else {}
+    pid = int(controller.get("pid") or value.get("pid") or 0)
+    alive = False
+    if pid > 1:
+        try:
+            os.kill(pid, 0)
+            alive = True
+        except (OSError, ProcessLookupError):
+            pass
+    status = str(value.get("status") or controller.get("status") or "unknown")
+    if status in {"starting", "running", "cancelling"} and not alive:
+        status = "interrupted"
+    return {
+        **value,
+        "status": status,
+        "pid": pid or None,
+        "alive": alive,
+        "batch_dir": str(path),
+        "report": str(path / "batch-report.md") if (path / "batch-report.md").is_file() else None,
+        "log": str(path / "controller.log") if (path / "controller.log").is_file() else None,
+    }
+
+
+def cmd_batch_status(args) -> int:
+    try:
+        state = _batch_state(Path(args.batch))
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        return fail(str(error))
+    if args.json:
+        out(json.dumps(state, separators=(",", ":")))
+    else:
+        counts = " · ".join(
+            f"{state.get(key, 0)} {key.replace('_', ' ')}"
+            for key in ("passed", "failed", "not_run") if key in state
+        )
+        out(f"{state['status']} · {counts or 'waiting for first receipt'} · {state['batch_dir']}")
+        if state.get("report"):
+            out(f"report: {state['report']}")
+        elif state.get("log"):
+            out(f"log: {state['log']}")
+    return 0 if state["status"] not in {"interrupted", "stopped"} and state.get("ok") is not False else 1
+
+
+def cmd_batch_cancel(args) -> int:
+    try:
+        path = Path(args.batch).expanduser().resolve()
+        state = _batch_state(path)
+        pid = int(state.get("pid") or 0)
+        if pid <= 1 or not state.get("alive"):
+            return fail(f"batch controller is not running: {path}")
+        os.killpg(pid, signal.SIGTERM)
+        controller = {
+            "pid": pid, "status": "cancelling", "batch_dir": str(path),
+            "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        }
+        (path / "controller.json").write_text(json.dumps(controller, indent=2) + "\n", encoding="utf-8")
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        return fail(str(error))
+    if args.json:
+        out(json.dumps({"ok": True, **controller}, separators=(",", ":")))
+    else:
+        out(f"cancelling batch · pid={pid} · {path}")
+    return 0
 
 
 def cmd_eval(args) -> int:
@@ -985,7 +1081,7 @@ def cmd_reports(args) -> int:
         out(json.dumps(found, separators=(",", ":")))
         return 0
     if not found:
-        out("no batch or eval reports yet (see: pygraph batch / pygraph eval)")
+        out("no batch or eval reports yet (see: piw batch / piw eval)")
         return 0
     for report in found[: args.limit]:
         out(f"{report['kind']:<6} {report['modified']}  {report['path']}")
@@ -1395,11 +1491,31 @@ def build_parser() -> argparse.ArgumentParser:
     detail.add_argument("--io", action="store_true", help="include full sent/received bodies")
     detail.add_argument("--all", action="store_true", help="include steps that never ran")
 
-    batch = add("batch", "run this workflow across a corpus of inputs")
+    batch = add("batch", "run the exact workflow across an isolated input corpus")
     batch.add_argument("--inputs", required=True, help="corpus: .jsonl, a directory, or a lines file")
-    batch.add_argument("--input-file", required=True, help="filename each item is written to")
-    batch.add_argument("--parallel", type=int)
+    batch.add_argument("--input-file", default="input.txt", help="immutable per-item filename")
+    batch.add_argument("--parallel", type=int, choices=range(1, 33), default=4,
+                       help="concurrent items, separate from workflow workers")
     batch.add_argument("--limit", type=int)
+    output = batch.add_mutually_exclusive_group()
+    output.add_argument("--out", help="new batch directory")
+    output.add_argument("--resume", help="resume a batch with the same graph and corpus")
+    batch.add_argument("--require-all", action="store_true",
+                       help="fail an item if any declared step is skipped")
+    batch.add_argument("--stop-after-failures", type=int,
+                       help="stop dispatching new items after N failures")
+    batch.add_argument("--item-timeout", type=float, default=3600,
+                       help="hard wall timeout per item (default 3600s)")
+    batch.add_argument("--git-history", action="store_true",
+                       help="retain per-step Git commits for every item")
+    batch.add_argument("--detach", action="store_true",
+                       help="run in the background and return a status command")
+
+    batch_status = add("batch-status", "inspect a running or completed bulk job", workflow=False)
+    batch_status.add_argument("batch", help="batch directory returned by piw batch --detach")
+
+    batch_cancel = add("batch-cancel", "stop a detached bulk job", workflow=False)
+    batch_cancel.add_argument("batch", help="batch directory returned by piw batch --detach")
 
     evaluate = add("eval", "compare models over a corpus (judges held fixed)")
     evaluate.add_argument("--inputs", required=True)
@@ -1472,7 +1588,8 @@ COMMANDS = {
     "ls": cmd_ls, "schema": cmd_schema, "graph": cmd_graph, "validate": cmd_validate, "run": cmd_run,
     "ui": cmd_ui,
     "runs": cmd_runs, "show": cmd_show, "stats": cmd_stats, "path": cmd_path,
-    "set": cmd_set, "detail": cmd_detail, "batch": cmd_batch, "eval": cmd_eval,
+    "set": cmd_set, "detail": cmd_detail, "batch": cmd_batch,
+    "batch-status": cmd_batch_status, "batch-cancel": cmd_batch_cancel, "eval": cmd_eval,
     "reports": cmd_reports, "doctor": cmd_doctor, "create": cmd_create,
     "schedule": cmd_schedule, "automations": cmd_automations,
     "automation": cmd_automation,

@@ -21,8 +21,25 @@ cache evidence, and optimization analysis. Every directory contains a complete
 | [`10-judged-checklist`](workflows/10-judged-checklist/) | Advanced | Mechanical floor plus bounded semantic improvement |
 | [`11-parallel-analysis-qa`](workflows/11-parallel-analysis-qa/) | Complex | Parallel model nodes, fan-in, and final QA |
 | [`12-cache-optimization`](workflows/12-cache-optimization/) | Complex | Typed diagnosis, repeated run, cache and hotspot evidence |
+| [`13-thousand-item-pipeline`](workflows/13-thousand-item-pipeline/) | Scale | Five exact steps over 1,000 isolated items with resumable evidence |
 
 ## Graph gallery
+
+### 13 · 1,000 items through one five-step contract
+
+```mermaid
+flowchart LR
+  C["corpus · 1,000 items"] --> Q["bounded item queue"]
+  Q --> N["normalize"] --> E["enrich"] --> S["score"] --> V["verify"] --> O["emit"]
+  O --> R["per-item receipt"]
+  R --> B["aggregate batch proof"]
+```
+
+```bash
+cd examples/workflows/13-thousand-item-pipeline
+python3 generate_corpus.py --count 1000
+piw batch steps.yaml --inputs corpus.jsonl --parallel 16 --require-all --detach --json
+```
 
 ### 02 · Sequential pipeline
 
@@ -105,7 +122,8 @@ The validation pass makes no model calls:
 python3 scripts/run_example_suite.py --validate-only
 ```
 
-The live pass runs all 12 workflows and runs the cache example twice:
+The live pass runs all 13 examples once and runs the cache example twice. The
+1,000-item scale path has its own free bulk command above:
 
 ```bash
 python3 scripts/run_example_suite.py
