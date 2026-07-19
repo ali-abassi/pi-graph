@@ -6,6 +6,10 @@ category: verify
 inputs: Candidate artifact from immutable input or --needs.
 outputs: Two three-point reviews and a JSON pass or revise verdict.
 failure: Any missing review, malformed synthesis, or exhausted model failure halts the action.
+effect: none
+retry_safe: true
+idempotency: not-required
+cost: three-model-calls
 steps:
   - id: correctness
     needs: []

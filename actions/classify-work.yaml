@@ -6,6 +6,10 @@ category: route
 inputs: One work request from immutable input or --needs.
 outputs: JSON category routine, reasoning, or effectful plus confidence and rationale.
 failure: Fails closed if the classifier does not emit the declared fields and enum.
+effect: none
+retry_safe: true
+idempotency: not-required
+cost: one-model-call
 steps:
   - id: classify
     needs: []

@@ -1,0 +1,2 @@
+Proposed run: process 1,000 support tickets through classify, redact, summarize, verify, and emit. Inputs have stable IDs and every node has a typed output and mechanical gate. Start with 5 items, stop after 2 failures, and preserve an item receipt. The final emit calls a vendor API, but the proposal does not yet define an idempotency key, read-back verification, rate limit, or total cost ceiling.
+

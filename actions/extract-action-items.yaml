@@ -6,6 +6,10 @@ category: transform
 inputs: Immutable workflow input, or artifacts from --needs.
 outputs: JSON with summary, actions, and risks.
 failure: Fails on model, JSON parse, or declared output-shape failure after bounded backoff.
+effect: none
+retry_safe: true
+idempotency: not-required
+cost: one-model-call
 steps:
   - id: extract
     needs: []

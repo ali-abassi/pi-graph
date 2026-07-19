@@ -19,7 +19,7 @@ mkdir -p "$stage/product"
 (cd "$source_dir" && tar \
   --exclude='./.git' --exclude='./.venv' --exclude='./.pytest_cache' \
   --exclude='./__pycache__' --exclude='./node_modules' --exclude='*/cache' --exclude='*/runs' \
-  --exclude='*/batch-*' \
+  --exclude='*/batch-[0-9]*' \
   --exclude='./outputs' --exclude='./state' --exclude='./examples/.artifacts' \
   -cf - .) | (cd "$stage/product" && tar -xf -)
 

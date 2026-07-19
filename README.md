@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/pi-workflows-hero.svg" alt="Pi Workflows — deterministic graphs, probabilistic work" width="100%">
+  <img src="docs/assets/pi-workflows-hero.svg" alt="pi workflows — deterministic graphs, probabilistic work" width="100%">
 </p>
 
 <p align="center">
@@ -7,38 +7,47 @@
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-11110f"></a>
 </p>
 
-# Pi Workflows
+# pi workflows
 
-**The deterministic workflow graph for [Pi](https://github.com/earendil-works/pi), Codex, Claude Code, and other agent harnesses.**
+**Your agent does not get to skip steps.**
 
-Write a readable `steps.yaml`; Pi Workflows owns ordering, parallelism, typed
-routes, gates, retries, evidence, and cost. Models produce or review artifacts,
-but code decides what runs and whether it passed.
+Have you ever given an agent five exact steps, then watched it skip two, reorder
+the rest, and confidently say it was done? The model thought it knew better.
+Now the result is incomplete, the evidence is missing, and you have to inspect
+everything yourself.
 
-An agent can create a workflow, validate it before spending tokens, run the
-whole graph or one action, run the exact graph over 1,000 isolated items,
-compare models, inspect
-every attempt, and find the next cost or latency hotspot. The result is
-repeatable agent work without pretending model output itself is deterministic.
+Never let that happen again. **pi workflows** turns required work into a
+deterministic graph that code—not the model—controls. Every declared step runs
+only after its dependencies, every branch follows typed rules, and every gate
+must pass before the workflow can claim success. Models still research, write,
+review, and code; they just cannot silently rewrite the process.
 
-> Pi Workflows is an independent community project. It uses Pi's public package,
+Write the workflow once in readable YAML. Run it for one task or 1,000 inputs.
+Inspect every action, retry only failed work, compare models node by node, and
+see exactly where the time and tokens went.
+
+> Deterministic means the graph, transitions, gates, and completion rules are
+> code-owned. Live model outputs can still vary, so pi workflows lets you pin
+> models, validates outputs, and preserves evidence instead of pretending LLM
+> answers are identical.
+
+> pi workflows is an independent community project. It uses Pi's public package,
 > skill, JSON-mode, and model interfaces; it is not an official Pi project.
 
-## What it gives you
+## What your agent can no longer skip
 
-- **Deterministic orchestration.** Dependencies, concurrency, routes, retries,
-  timeouts, and stop conditions are code-owned.
-- **Configurable agent steps.** Pin the model, reasoning, system prompt, tool
-  allowlist, output contract, gate, judge, artifacts, and retry boundary per node.
-- **Reusable action catalog.** Expand tested review, extraction, coding,
-  evidence, JSONL, and exact-item patterns into ordinary inspectable YAML nodes.
-- **Proof, not vibes.** Every run preserves events, resolved input, outputs,
-  rejected attempts, stderr, tokens, cost, time, cache state, and Git history.
-- **Built-in evaluation.** Run corpora, compare models while holding judges
-  fixed, inspect regressions, and optimize the most expensive nodes first.
-- **Bulk without babysitting.** Freeze one validated graph, execute it for every
-  item with bounded concurrency, resume only unfinished items, and receive one
-  machine-readable proof that all items followed the contract.
+- **The order.** Dependencies, parallel work, routes, retries, timeouts, and stop
+  conditions are enforced by the runner.
+- **The quality checks.** Schemas and shell gates decide whether a node passed;
+  a confident model cannot wave a failed check through.
+- **The evidence.** Every run keeps inputs, outputs, attempts, errors, tokens,
+  cost, timing, cache state, and Git history.
+- **The scale contract.** The same validated graph can run across 1,000 isolated
+  inputs with bounded concurrency, resumable receipts, and ordered outputs.
+- **The cost controls.** Pin models and reasoning per node, compare candidates
+  against fixed judges, and optimize the actual hotspot instead of guessing.
+- **The reusable work.** Start from inspectable action templates for review,
+  extraction, coding, evidence, JSONL, failure triage, and exact-item pipelines.
 - **Portable by default.** The CLI and YAML format work without Agent X or
   Loops. Pi, Codex, and Claude Code discover the same installed skill.
 
@@ -58,7 +67,7 @@ flowchart LR
 
 This is the primary use case. Tell an agent, “run these five steps exactly for
 these 1,000 records.” The agent validates the graph once, canaries a few items,
-then starts a detached bulk job. Pi Workflows—not the agent—owns the queue,
+then starts a detached bulk job. pi workflows—not the agent—owns the queue,
 ordering, retries, isolation, and completion accounting.
 
 ```bash
@@ -70,7 +79,8 @@ piw batch steps.yaml --inputs corpus.jsonl --limit 5 --require-all
 
 # Run all 1,000 in the background with 16 isolated items in flight
 piw batch steps.yaml --inputs corpus.jsonl --parallel 16 \
-  --require-all --stop-after-failures 3 --detach --json
+  --require-all --stop-after-failures 3 \
+  --max-tokens 2000000 --max-cost 25 --output-step publish --detach --json
 
 # The launch receipt returns this exact status command
 piw batch-status /path/to/batch-dir --json
@@ -100,7 +110,21 @@ with `--git-history` when that extra storage is worth it.
 
 `--parallel` controls concurrent **items**. `workers:` in `steps.yaml` controls
 parallel nodes **inside each item**. Their product is the maximum potential
-step concurrency, so increase them deliberately.
+step concurrency, so increase them deliberately. Parallel batch execution
+fails closed when a workflow contains `agent: true` or `produces:` because
+those nodes may race in the shared workspace. `--allow-shared-workspace` is an
+explicit opt-in for workflows that provide their own isolation or resource lock.
+
+`piw batch-cancel <batch-dir>` asks the controller to terminate every active
+item process group before it records `cancelled`; undispatched items remain
+`not_run` instead of continuing as orphan processes.
+
+`--max-tokens` and `--max-cost` are fail-closed **dispatch ceilings** over
+usage recorded in every attempt ledger, including failed attempts. They are
+not provider-side reservations: already-running items drain, and the receipt
+reports any overshoot. `--output-step <id>` writes an input-ordered,
+exact-cardinality `outputs.jsonl` plus a digest manifest, so downstream agents
+can distinguish successful output from failed, skipped, and never-run items.
 
 ## Studio UI
 
@@ -114,7 +138,7 @@ piw ui examples/workflows/11-parallel-analysis-qa/steps.yaml \
 ```
 
 <p align="center">
-  <img src="docs/assets/pi-workflows-studio.png" alt="Pi Workflows Studio showing a parallel analysis graph, node inspector, and flight recorder" width="100%">
+  <img src="docs/assets/pi-workflows-studio.png" alt="pi workflows Studio showing a parallel analysis graph, node inspector, and flight recorder" width="100%">
 </p>
 
 Click a node to inspect its runtime contract. Start a run to watch nodes move
@@ -195,7 +219,10 @@ piw validate review/steps.yaml
 
 The included catalog covers typed extraction and routing, parallel independent
 review, bounded judge/refine, repository change + diff verification, evidence
-synthesis, canonical JSONL, and the five-stage exact item pipeline. See
+synthesis, canonical JSONL, the five-stage exact item pipeline, explicit agent
+handoffs, batch-readiness review, failure triage, and adversarial repair. Each
+action advertises effects, retry safety, idempotency expectations, and cost
+shape before expansion. See
 [`docs/actions.md`](docs/actions.md) for every input/output/failure contract.
 
 ```mermaid
@@ -208,7 +235,7 @@ flowchart LR
 
 ## Node system
 
-Pi Workflows has four execution runtimes and one final review boundary. Use the
+pi workflows has four execution runtimes and one final review boundary. Use the
 weakest runtime that can finish the step.
 
 | Runtime | Declaration | Model call | Best for |

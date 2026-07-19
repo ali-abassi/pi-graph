@@ -6,6 +6,10 @@ category: research
 inputs: A source packet or prior research artifacts from immutable input or --needs.
 outputs: Claim map, skeptical review, and JSON recommendation with uncertainties.
 failure: Fails if either evidence lane or the typed synthesis cannot be verified.
+effect: none
+retry_safe: true
+idempotency: not-required
+cost: three-model-calls
 steps:
   - id: claims
     needs: []

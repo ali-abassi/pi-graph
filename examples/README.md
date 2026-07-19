@@ -23,6 +23,7 @@ cache evidence, and optimization analysis. Every directory contains a complete
 | [`12-cache-optimization`](workflows/12-cache-optimization/) | Complex | Typed diagnosis, repeated run, cache and hotspot evidence |
 | [`13-thousand-item-pipeline`](workflows/13-thousand-item-pipeline/) | Scale | Five exact steps over 1,000 isolated items with resumable evidence |
 | [`14-action-template-review`](workflows/14-action-template-review/) | Complex | Two reusable actions expanded into four plain nodes with classified retries |
+| [`15-batch-readiness`](workflows/15-batch-readiness/) | Scale | Parallel contract/scale review and a typed canary launch decision |
 
 ## Graph gallery
 
@@ -111,6 +112,17 @@ This graph is the materialized result of `parallel-review` followed by
 `extract-action-items`. The checked-in YAML contains no action indirection, so
 the Studio, validator, runner, cache, and evidence ledger use the same nodes.
 
+### 15 · Review before launching 1,000 items
+
+```mermaid
+flowchart LR
+  P(["batch proposal"]) --> C["contract completeness"]
+  P --> S["scale hazards"]
+  C --> D{"ready, revise, or block"}
+  S --> D
+  D --> R["canary size + concurrency + stop rule"]
+```
+
 All model-backed example nodes—including judges and QA—are pinned to
 `openai-codex/gpt-5.6-luna` at `medium` reasoning for the public live suite.
 That is a cost-conscious demonstration route, not a claim that same-model QA is
@@ -138,7 +150,7 @@ The validation pass makes no model calls:
 python3 scripts/run_example_suite.py --validate-only
 ```
 
-The live pass runs all 13 examples once and runs the cache example twice. The
+The live pass runs every example once and runs the cache example twice. The
 1,000-item scale path has its own free bulk command above:
 
 ```bash

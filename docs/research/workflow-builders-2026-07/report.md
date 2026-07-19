@@ -90,6 +90,52 @@ The initial catalog covers:
 - plan/implement/Git-diff verification for repository changes;
 - the exact five-stage item pipeline used by `piw batch`.
 
+### Second research pass: workflow fleets and reusable actions
+
+A broader comparison of Temporal, Inngest, Prefect, Dagster, Windmill, n8n,
+LangGraph, Restate, and Hatchet sharpened the next boundary. The shared idea is
+not a larger canvas vocabulary. It is a durable work identity:
+`(workflow revision, corpus digest, item key, node id, attempt)` plus a committed
+result or external-effect receipt. Keyed concurrency then serializes work that
+targets the same tenant, repository, account, or API resource without blocking
+unrelated keys.
+
+Three recovery operations should remain distinct:
+
+1. resume unfinished work against the pinned workflow revision;
+2. retry only failed items or nodes with the same pinned contract;
+3. fork from a checkpoint under a newer revision and record the lineage.
+
+The current batch controller already covers the first two at item granularity.
+Checkpoint forking, shared resource pools, and durable cross-process leases stay
+deferred until their persistence and stale-worker contracts are implemented.
+The Studio should eventually render one logical batch node with an item table,
+not clone 1,000 graph nodes.
+
+The academic pass reinforced four product rules. Classical validation should
+compile and reject impossible plans before model execution; final effects must
+be mechanically verified; each node should receive only declared inputs rather
+than an ever-growing transcript; and semantic repair should be grounded in a
+schema error, test result, or other external evidence. Multi-agent conversation
+is not itself a reliability feature.
+
+That evidence produced four new authoring-time actions without expanding the
+runtime vocabulary:
+
+- `handoff-contract` prevents objective, constraint, and acceptance-test loss
+  at agent boundaries;
+- `batch-readiness` independently reviews correctness and scale hazards before
+  a large corpus launch;
+- `failure-triage` separates observed evidence from causal hypotheses and marks
+  whether retrying is safe;
+- `red-team-repair` ties defects to evidence, performs a bounded repair, and
+  independently verifies the result.
+
+Every catalog action now declares its effect class, retry safety, idempotency
+expectation, and model-cost shape. These are inspection contracts today. They
+should become static validator inputs before a future effectful action catalog
+is allowed to grow.
+
 ### Classified retries
 
 Every failed attempt now records one of `command_exit`, `model_error`,

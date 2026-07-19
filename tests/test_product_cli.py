@@ -146,8 +146,13 @@ class ProductCliTests(unittest.TestCase):
             )
             self.assertEqual(listed.returncode, 0, listed.stderr)
             actions = {item["id"]: item for item in json.loads(listed.stdout)}
-            self.assertGreaterEqual(len(actions), 8)
+            self.assertGreaterEqual(len(actions), 12)
             self.assertEqual(actions["parallel-review"]["nodes"], 3)
+            for action in actions.values():
+                self.assertIn("effect", action)
+                self.assertIn("retry_safe", action)
+                self.assertIn("idempotency", action)
+                self.assertIn("cost", action)
 
             created_paths = {}
             for action_id in actions:
@@ -170,6 +175,9 @@ class ProductCliTests(unittest.TestCase):
 
             target = created_paths["parallel-review"]
             spec = yaml.safe_load((target / "steps.yaml").read_text(encoding="utf-8"))
+            self.assertIn("parallel-review", spec["qa"]["prompt"])
+            self.assertIn("Output contract:", spec["qa"]["prompt"])
+            self.assertIn("Do not require", spec["qa"]["prompt"])
             self.assertEqual(
                 [step["id"] for step in spec["steps"]],
                 ["parallel-review-correctness", "parallel-review-failure-modes", "parallel-review-verdict"],

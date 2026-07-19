@@ -33,11 +33,13 @@ def five_step_workflow() -> dict:
 
 
 class BatchTests(unittest.TestCase):
-    def run_cli(self, *arguments: str, timeout: float = 60) -> subprocess.CompletedProcess[str]:
+    def run_cli(self, *arguments: str, timeout: float = 60,
+                env_overrides: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         env = {
             **os.environ,
             "LOOPS_PORT": "1",
             "PI_WORKFLOWS_STATE_DIR": str(Path(tempfile.gettempdir()) / "piw-batch-test-state"),
+            **(env_overrides or {}),
         }
         return subprocess.run(
             [sys.executable, str(CLI), *arguments],
@@ -251,6 +253,199 @@ class BatchTests(unittest.TestCase):
             self.assertEqual(state["status"], "completed")
             self.assertEqual(state["passed"], 3)
             self.assertEqual(state["all_steps_passed"], 3)
+
+    def test_parallel_shared_workspace_steps_require_explicit_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            corpus = root / "corpus.jsonl"
+            corpus.write_text(
+                json.dumps({"id": "one", "content": "one"}) + "\n"
+                + json.dumps({"id": "two", "content": "two"}) + "\n",
+                encoding="utf-8",
+            )
+            risky_specs = {
+                "agent": {
+                    "id": "mutate", "prompt": "Make the requested change.", "agent": True,
+                    "gate": "test -s \"$OUT\"",
+                },
+                "produces": {
+                    "id": "export", "cmd": "printf artifact > shared.txt; printf ok",
+                    "produces": ["shared.txt"], "gate": "test -s \"$OUT\"",
+                },
+            }
+            for name, step in risky_specs.items():
+                with self.subTest(name=name):
+                    workflow_dir = root / name
+                    workflow_dir.mkdir()
+                    steps = workflow_dir / "steps.yaml"
+                    steps.write_text(yaml.safe_dump({
+                        "version": 1, "workflow": f"risky-{name}", "steps": [step],
+                    }, sort_keys=False), encoding="utf-8")
+                    rejected = self.run_cli(
+                        "batch", str(steps), "--inputs", str(corpus), "--parallel", "2", "--json",
+                    )
+                    self.assertEqual(rejected.returncode, 2, rejected.stderr + rejected.stdout)
+                    self.assertIn(
+                        "may race in the shared workflow workspace", rejected.stderr + rejected.stdout,
+                    )
+
+            allowed = self.run_cli(
+                "batch", str(root / "produces" / "steps.yaml"), "--inputs", str(corpus),
+                "--parallel", "2", "--allow-shared-workspace", "--out", str(root / "allowed"),
+                "--json",
+            )
+            self.assertEqual(allowed.returncode, 0, allowed.stderr + allowed.stdout)
+
+    def test_cancel_stops_every_active_item_group_and_persists_terminal_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            effect = root / "effect.txt"
+            steps = root / "steps.yaml"
+            steps.write_text(yaml.safe_dump({
+                "version": 1,
+                "workflow": "cancel-active-items",
+                "input": {"required": True, "description": "cancellation fixture"},
+                "steps": [{
+                    "id": "slow",
+                    "cmd": f"printf '%s' \"$$\" > \"$RUN/shell.pid\"; sleep 30; printf effect >> {effect}",
+                    "gate": 'test -s "$OUT"',
+                    "retries": 0,
+                }],
+            }, sort_keys=False), encoding="utf-8")
+            corpus = root / "corpus.jsonl"
+            corpus.write_text("".join(
+                json.dumps({"id": str(index), "content": str(index)}) + "\n"
+                for index in range(6)
+            ), encoding="utf-8")
+            batch = root / "detached"
+            launched = self.run_cli(
+                "batch", str(steps), "--inputs", str(corpus), "--out", str(batch),
+                "--parallel", "2", "--detach", "--json",
+            )
+            self.assertEqual(launched.returncode, 0, launched.stderr + launched.stdout)
+
+            deadline = time.monotonic() + 10
+            pid_files: list[Path] = []
+            while time.monotonic() < deadline:
+                pid_files = list((batch / "items").glob("*/attempts/*/shell.pid"))
+                if len(pid_files) == 2:
+                    break
+                time.sleep(0.05)
+            self.assertEqual(len(pid_files), 2, "two item runners never became active")
+            child_pids = [int(path.read_text(encoding="utf-8")) for path in pid_files]
+
+            cancelled = self.run_cli("batch-cancel", str(batch), "--json")
+            self.assertEqual(cancelled.returncode, 0, cancelled.stderr + cancelled.stdout)
+            self.assertEqual(json.loads(cancelled.stdout)["status"], "cancelling")
+
+            state = None
+            while time.monotonic() < deadline:
+                checked = self.run_cli("batch-status", str(batch), "--json")
+                if checked.stdout:
+                    state = json.loads(checked.stdout)
+                    if state["status"] == "cancelled":
+                        break
+                time.sleep(0.05)
+            self.assertIsNotNone(state)
+            self.assertEqual(state["status"], "cancelled")
+            self.assertFalse(state["ok"])
+            self.assertEqual(state["cancelled"], 2)
+            self.assertEqual(state["not_run"], 4)
+            self.assertEqual(self.run_cli("batch-status", str(batch), "--json").returncode, 1)
+            results = json.loads((batch / "batch.json").read_text(encoding="utf-8"))["results"]
+            self.assertEqual({result["status"] for result in results}, {"cancelled"})
+            self.assertTrue(all(result["exit"] == 130 for result in results))
+            self.assertFalse(effect.exists(), "a cancelled item reached its external effect")
+
+            for child_pid in child_pids:
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(child_pid, 0)
+
+    def test_output_export_is_exact_cardinality_and_corpus_ordered(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            steps = root / "steps.yaml"
+            steps.write_text(yaml.safe_dump({
+                "version": 1,
+                "workflow": "ordered-output",
+                "input": {"required": True, "description": "ordered fixture"},
+                "steps": [{
+                    "id": "selected",
+                    "cmd": 'grep -q slow "$INPUT" && sleep 0.2 || true; cat "$INPUT"',
+                    "gate": 'test -s "$OUT"',
+                }, {
+                    "id": "after", "needs": ["selected"], "cmd": "printf done",
+                }],
+            }, sort_keys=False), encoding="utf-8")
+            corpus = root / "corpus.jsonl"
+            corpus.write_text("".join([
+                json.dumps({"id": "first", "content": "slow first"}) + "\n",
+                json.dumps({"id": "second", "content": "fast second"}) + "\n",
+                json.dumps({"id": "third", "content": "fast third"}) + "\n",
+            ]), encoding="utf-8")
+            batch = root / "batch"
+            result = self.run_cli(
+                "batch", str(steps), "--inputs", str(corpus), "--out", str(batch),
+                "--parallel", "3", "--output-step", "selected", "--json",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            receipt = json.loads(result.stdout)
+            self.assertEqual(receipt["output_rows"], 3)
+            self.assertEqual(receipt["outputs_exported"], 3)
+            rows = [json.loads(line) for line in (batch / "outputs.jsonl").read_text(encoding="utf-8").splitlines()]
+            self.assertEqual([row["id"] for row in rows], ["first", "second", "third"])
+            self.assertEqual([row["output"] for row in rows], ["slow first", "fast second", "fast third"])
+            manifest = json.loads((batch / "outputs.manifest.json").read_text(encoding="utf-8"))
+            self.assertTrue(manifest["complete"])
+            self.assertEqual(manifest["results_sha256"], receipt["outputs_sha256"])
+
+            rejected = self.run_cli(
+                "batch", str(steps), "--inputs", str(corpus), "--output-step", "missing", "--json",
+            )
+            self.assertEqual(rejected.returncode, 2)
+            self.assertIn("references unknown step", rejected.stdout)
+
+    def test_recorded_token_budget_stops_new_dispatch_and_reports_overshoot(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_pi = fake_bin / "pi"
+            fake_pi.write_text(
+                "#!/bin/sh\n"
+                "printf '%s\\n' '{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\","
+                "\"provider\":\"test\",\"model\":\"luna\",\"stopReason\":\"stop\","
+                "\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],"
+                "\"usage\":{\"input\":5,\"output\":2,\"totalTokens\":7,"
+                "\"cost\":{\"total\":0.001}}}}'\n"
+                "printf '%s\\n' '{\"type\":\"agent_settled\"}'\n",
+                encoding="utf-8",
+            )
+            fake_pi.chmod(0o755)
+            steps = root / "steps.yaml"
+            steps.write_text(yaml.safe_dump({
+                "version": 1, "workflow": "token-budget", "model": "test/luna",
+                "input": {"required": True, "description": "budget fixture"},
+                "steps": [{"id": "call", "prompt": "Return ok for {input}", "gate": 'test -s "$OUT"'}],
+            }, sort_keys=False), encoding="utf-8")
+            corpus = root / "corpus.jsonl"
+            corpus.write_text("".join(
+                json.dumps({"id": str(index), "content": str(index)}) + "\n" for index in range(6)
+            ), encoding="utf-8")
+            batch = root / "batch"
+            result = self.run_cli(
+                "batch", str(steps), "--inputs", str(corpus), "--out", str(batch),
+                "--parallel", "1", "--max-tokens", "10", "--json",
+                env_overrides={"PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
+            )
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            receipt = json.loads(result.stdout)
+            self.assertEqual(receipt["status"], "budget_exhausted")
+            self.assertEqual(receipt["completed"], 2)
+            self.assertEqual(receipt["not_run"], 4)
+            self.assertEqual(receipt["tokens"], 14)
+            self.assertEqual(receipt["token_overshoot"], 4)
+            self.assertIn("token budget reached", receipt["stop_reason"])
 
 
 if __name__ == "__main__":

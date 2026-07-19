@@ -3,7 +3,9 @@
 Reusable actions are versioned YAML fragments that expand into ordinary v1
 steps. They are authoring shortcuts, not hidden node types: after expansion the
 workflow contains only `cmd`, `prompt`, `agent`, `needs`, `schema`, `gate`,
-`judge`, and retry fields that `piw schema` already documents.
+`judge`, and retry fields that `piw schema` already documents. Every catalog
+entry also declares its effect class, retry safety, idempotency expectation,
+and model-cost shape so an agent can inspect the boundary before materializing it.
 
 ```bash
 piw actions                         # compact catalog
@@ -41,15 +43,22 @@ schema violations, and invalid graph order fail before the file is changed.
 | `evidence-synthesis` | 3 | Claim and skeptic lanes, then evidence/counterevidence decision memo |
 | `repo-change` | 3 | Typed plan, scoped Pi implementation, and Git diff verification |
 | `exact-item-pipeline` | 5 | Exact normalize/enrich/score/verify/emit contract for bulk runs |
+| `handoff-contract` | 1 | Typed objective, context, constraints, acceptance checks, risks, and questions |
+| `batch-readiness` | 3 | Parallel correctness/scale review plus a typed canary launch decision |
+| `failure-triage` | 3 | Observed evidence, competing causes, and retry-safe remediation |
+| `red-team-repair` | 3 | Evidence-tied defects, bounded repair, and independent acceptance |
 
 The catalog is intentionally small. A repeated sequence should become an
-action when its input, output, failure, and evidence contracts are stable. New
-runtime semantics belong in the schema only when recovery, cancellation,
-identity, and replay behavior can be mechanically enforced.
+action when its input, output, failure, effect, retry-safety, idempotency, cost,
+and evidence contracts are stable. New runtime semantics belong in the schema
+only when recovery, cancellation, identity, and replay behavior can be
+mechanically enforced.
 
 ## Adding a catalog action
 
-Add one file under `actions/` with metadata and a non-empty `steps` list. Use
+Add one file under `actions/` with metadata and a non-empty `steps` list. The
+required metadata is `inputs`, `outputs`, `failure`, `effect`, `retry_safe`,
+`idempotency`, and `cost`. Use
 `{{source}}` for immutable input or `--needs` artifacts, `{{prefix}}` when a
 command needs its instantiated node prefix, and normal `{step.local-id}`
 references for dependencies inside a multi-node fragment. Every public action

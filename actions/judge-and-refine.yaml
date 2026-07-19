@@ -6,6 +6,10 @@ category: generate
 inputs: One objective from immutable input or --needs.
 outputs: Best artifact that clears both a non-empty gate and the declared semantic score.
 failure: Halts after three candidates when the independent score remains below eight.
+effect: none
+retry_safe: true
+idempotency: not-required
+cost: bounded-model-loop
 steps:
   - id: refine
     needs: []

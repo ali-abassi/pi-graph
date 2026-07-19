@@ -16,6 +16,7 @@
     {"id": "11-parallel-analysis-qa", "complexity": "complex", "features": ["parallel-llm", "fan-in", "independent-qa"]},
     {"id": "12-cache-optimization", "complexity": "complex", "features": ["typed-output", "cache", "optimization-ledger"], "repeat": 2},
     {"id": "13-thousand-item-pipeline", "complexity": "scale", "features": ["bulk", "exact-steps", "resume", "aggregate-evidence"]},
-    {"id": "14-action-template-review", "complexity": "complex", "features": ["reusable-actions", "parallel-review", "typed-verdict", "classified-retry"]}
+    {"id": "14-action-template-review", "complexity": "complex", "features": ["reusable-actions", "parallel-review", "typed-verdict", "classified-retry"]},
+    {"id": "15-batch-readiness", "complexity": "scale", "features": ["reusable-actions", "batch-safety", "parallel-review", "typed-launch-decision"]}
   ]
 }

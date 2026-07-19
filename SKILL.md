@@ -39,8 +39,10 @@ piw add review/steps.yaml extract-action-items --id extract --needs parallel-rev
 
 The catalog includes typed extraction/classification, parallel review,
 judge/refine, evidence synthesis, repo change + diff verification, canonical
-JSONL, and an exact five-stage item pipeline. Expansion is authoring-time only;
-always inspect and validate the resulting `steps.yaml`.
+JSONL, an exact five-stage item pipeline, typed handoffs, batch-readiness
+review, failure triage, and adversarial repair. Every action declares effects,
+retry safety, idempotency expectations, and cost shape. Expansion is
+authoring-time only; always inspect and validate the resulting `steps.yaml`.
 
 Write a `steps.yaml` (full example: `templates/idea-to-plan.steps.yaml` — research, GO/NO-GO gate, debate, per-page copy, review→patch→apply quality loop, checklist output):
 
@@ -115,7 +117,7 @@ Mechanics (the load-bearing rules):
 - **Cache + surgical regen:** passing prompt-step outputs cached by content hash in `<yaml-dir>/cache/`; hit = model + judge skipped, gate re-runs. Upstream changes invalidate downstream automatically; `--regen <id>` forces one node fresh. `--no-cache` for paired experiments.
 - **Iteration history (git):** every run dir is a git repo; the runner commits after each step (`<id>: PASS/FAIL`), after QA (`QA: pass/fail`), and commits any operator hand-edits before `--verify`. `git -C runs/<dir> log --stat` = the changelog between iterations; `git diff HEAD~1` = what the last cycle changed. Document loops additionally emit `changes.diff` + `changelog.md` (applied/rejected per finding) and failed judged attempts persist as `<id>.aN.md`.
 - **Cost ledger:** every run writes `ledger.json` + a log table — seconds, tokens, real dollars per step. Read it after every run; the most expensive node is the next optimization target.
-- **QA + verify:** `qa:` runs after the last step and on `--verify` (mechanical re-checks first, fail-fast; then the QA judge over `{artifacts}`). Implementer model is never sole approver.
+- **QA + verify:** `qa:` runs after the last step and on `--verify` (mechanical re-checks first, fail-fast; then the QA judge over `{artifacts}`). Implementer model is never sole approver. For an action-built workflow, QA evaluates that action's declared input/output/failure contract; it must not invent a downstream requirement such as implementing the proposal that was only reviewed.
 - **Human checkpoint = 2-line step:** `cmd: test -f approvals/<name>.ok` with `retries: 0` — halts with a resume command; operator inspects artifacts, touches the file, resumes. LLM judges are smell tests; the human at the boundary is the gate of record.
 - **System prompts:** top-level `system:` for writing-chain hygiene (steps only; judges/QA never inherit; `system: ""` opts a step out). Writing nodes want cheap models + low/off thinking; reasoning nodes (verdicts, deciders) want thinking high.
 
@@ -123,11 +125,12 @@ Mechanics (the load-bearing rules):
 
 1. **Smoke one unit.** Run the yaml on one real input. Read `log.md`, the ledger, and every artifact. A gate that never fails is a gate that checks nothing — try to make each one fail once.
 2. **Fix generally, not locally.** Every failure the gates catch becomes a *general* prompt/gate fix in the yaml (never a hardcoded patch for one input). Tonight's rule: gate finding → template fix → every future run inherits it.
-3. **Batch it:** canary first with `piw batch steps.yaml --inputs corpus.jsonl --limit 5 --require-all`; then launch the full corpus with `--parallel N --require-all --stop-after-failures N --detach --json`. Poll the returned `piw batch-status <dir> --json` command. Every item has an immutable input and isolated attempts; the frozen graph/corpus receipt makes `--resume <dir>` reject drift and rerun only failed or unfinished items. This is the “run these exact steps 1,000 times” mode; exit 0 only when every item has a complete execution contract and passes.
+3. **Batch it:** canary first with `piw batch steps.yaml --inputs corpus.jsonl --limit 5 --require-all --output-step result`; then launch the full corpus with `--parallel N --require-all --stop-after-failures N --max-tokens N --max-cost N --output-step result --detach --json`. Poll the returned `piw batch-status <dir> --json` command. Every item has an immutable input and isolated attempts; the frozen graph/corpus receipt makes `--resume <dir>` reject drift and rerun only failed or unfinished items. `outputs.jsonl` preserves corpus order and exact cardinality, including explicit failure/not-run rows. Token/cost limits are recorded-usage dispatch ceilings, not provider-side hard caps: active items drain and any overshoot is receipted. This is the “run these exact steps 1,000 times” mode; exit 0 only when every item has a complete execution contract and passes.
 4. **Pick the model with data:** `scripts/eval_models.py steps.yaml --inputs corpus.jsonl --input-file idea.md --models luna,sol,...` — swaps only the top-level default (judges stay fixed), `--no-cache`, paired inputs → `eval-report.md`: pass rate, QA rate, judge scores, tokens, cost, wall per model. Choose on evidence, not vibes.
 5. **Open the Studio when a human drives it:** `piw ui steps.yaml --input-file idea.md` — the optional local graph, node inspector, immutable input editor, live flight recorder, final artifact, and cost hotspot view all use the same canonical runner. `--output <step-id>` picks the result artifact; the UI never owns workflow semantics.
-6. **Hill-climb per `$improvement`:** freeze a 2-3 item corpus; metric = judge scores + QA verdicts (greppable from logs); mutable surface = prompts and `system:` only (never gates, judge prompts, or the runner); one mutation per candidate, paired batch runs, keep-or-revert with the changelog artifacts as evidence.
-7. **Automate only after proof:** `piw schedule <workflow> --interval-minutes N` or `--daily HH:MM`. Inspect with `piw automations`; pause, resume, run, or delete with `piw automation <action> <id>`.
+6. **Optimize one node at a time:** inspect `piw detail <run>` and `ledger.json`; the QA/judge is often the token hotspot. Start bounded extraction, formatting, and independent review lanes on Luna low. Keep synthesis, routing verdicts, and QA at medium until paired no-cache runs prove they can move down. Freeze a 2-3 item corpus, change one node/model/thinking setting, compare pass/QA quality plus tokens, cost, and wall time, then repeat on a fresh holdout. Keep only consistent wins; token savings alone do not justify a candidate that loses on cost, latency, or quality.
+7. **Hill-climb prompts per `$improvement`:** freeze the judge, gates, and corpus; mutate prompts or `system:` one mechanism at a time; use paired no-cache runs and keep-or-revert with the run artifacts as evidence. Never tune the evaluator and candidate together.
+8. **Automate only after proof:** `piw schedule <workflow> --interval-minutes N` or `--daily HH:MM`. Inspect with `piw automations`; pause, resume, run, or delete with `piw automation <action> <id>`.
 
 ## Heavy route: production workflow factory (opt-in only)
 

@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+- Removed the decorative workflow graph from the hero artwork after it failed
+  to render cleanly; the Pi mark, product name, and deterministic-graph promise
+  remain.
+- Made action-created QA prompts evaluate the selected action's declared
+  contract instead of inventing a downstream completion requirement.
+- Added recorded token/cost dispatch ceilings across every historical attempt,
+  explicit in-flight overshoot receipts, and drift-safe resume semantics.
+- Added exact-cardinality, input-ordered batch output exports with per-item
+  terminal status, completeness counts, and a SHA-256 manifest.
+- Ran paired per-node Luna optimization trials on two real inputs; retained the
+  conservative model policy because low reasoning saved tokens consistently but
+  did not produce a consistent cost/latency win on the holdout.
+- Expanded the research comparison across durable runtimes, DAG/data
+  orchestrators, low-code builders, agent graphs, and primary orchestration
+  papers, including keyed concurrency, checkpoint forks, end-state reliability,
+  and node-level authoring ergonomics.
+- Added reusable `handoff-contract`, `batch-readiness`, `failure-triage`, and
+  `red-team-repair` actions plus a 15th runnable Luna-medium example.
+- Made every public action declare its effect class, retry safety, idempotency
+  expectation, and cost shape before it can be inspected or expanded.
+- Fixed detached batch cancellation so the controller terminates and receipts
+  every active item process group instead of leaving orphan effects running.
+- Added a fail-closed parallel-batch preflight for `agent: true` and `produces:`
+  nodes that share one workspace, with an explicit isolation override.
+- Tightened the installer evidence exclusion so public files such as the
+  `batch-readiness` action are not mistaken for timestamped batch run folders.
+
 All notable changes to Pi Workflows are documented here.
 
 ## 0.4.0 — 2026-07-19

@@ -101,6 +101,22 @@ deterministic route that skips a node then fails that item intentionally. Use
 `--resume <batch-dir>` after interruption or repair: already-passed items are
 not repeated, while graph or corpus drift is rejected before execution.
 
+Parallel items share the declared workflow `cwd`. To prevent obvious
+cross-item mutation races, `piw batch --parallel N` rejects workflows containing
+`agent: true` or `produces:` when `N > 1`. Use
+`--allow-shared-workspace` only after the workflow provides an independent
+workspace or resource lock. Cancellation is controller-coordinated: active item
+process groups are terminated and evidenced as `cancelled`, while items that
+were never dispatched remain `not_run`.
+
+`--max-tokens N` and `--max-cost N` stop new dispatch from recorded cumulative
+usage. Historical failed attempts count. In-flight work may finish past the
+threshold, so the receipt exposes token/cost overshoot rather than describing
+these as hard provider caps. `--output-step <id>` validates the selector before
+paid work and exports one `outputs.jsonl` row per corpus item in original order,
+plus `outputs.manifest.json` with completeness counts and a SHA-256 digest.
+These settings are frozen into the batch manifest and cannot drift on resume.
+
 ## Dependencies, routes, and output contracts
 
 - `needs: [a, b]` waits for both nodes. `needs: []` creates a root node.

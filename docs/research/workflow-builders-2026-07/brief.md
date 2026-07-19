@@ -28,12 +28,12 @@ the core node vocabulary or weakening its code-owned control-flow boundary.
 
 | Question | Required evidence | Preferred sources | Freshness | Status |
 |---|---|---|---|---|
-| Which runtime semantics most improve reliability at scale? | Exact retry, replay, idempotency, durability, and concurrency contracts | Official docs/source | Current | open |
-| Which graph dynamics are broadly useful for agent work? | Map/fan-out, joins, routing, subflows, waits, compensation, human gates | Official docs/source | Current | open |
-| Which reusable action nodes remove repeated authoring? | Common templates plus input/output/failure contracts | Product docs/source | Current | open |
-| What does research say about multi-agent gains and failure modes? | Primary papers with tasks, methods, and limitations | arXiv/conference/publisher | 2023-2026 | open |
-| What improves cost, latency, and token efficiency? | Empirical or formal scheduling/routing/caching evidence | Papers and runtime docs | 2023-2026 | open |
-| What should Pi Workflows implement now versus defer? | Local gap analysis, complexity, tests, and compatibility | Local code plus verified findings | Current | open |
+| Which runtime semantics most improve reliability at scale? | Exact retry, replay, idempotency, durability, and concurrency contracts | Official docs/source | Current | verified |
+| Which graph dynamics are broadly useful for agent work? | Map/fan-out, joins, routing, subflows, waits, compensation, human gates | Official docs/source | Current | verified |
+| Which reusable action nodes remove repeated authoring? | Common templates plus input/output/failure contracts | Product docs/source | Current | verified |
+| What does research say about multi-agent gains and failure modes? | Primary papers with tasks, methods, and limitations | arXiv/conference/publisher | 2023-2026 | verified |
+| What improves cost, latency, and token efficiency? | Empirical or formal scheduling/routing/caching evidence | Papers and runtime docs | 2023-2026 | verified |
+| What should Pi Workflows implement now versus defer? | Local gap analysis, complexity, tests, and compatibility | Local code plus verified findings | Current | verified |
 
 ## Competing hypotheses
 

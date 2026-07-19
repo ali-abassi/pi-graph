@@ -231,7 +231,10 @@ def _action_catalog() -> dict[str, dict[str, Any]]:
             action = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         except (OSError, yaml.YAMLError) as error:
             raise RuntimeError(f"action template {path.name} is unreadable: {error}") from error
-        required = {"version", "id", "title", "description", "category", "inputs", "outputs", "failure", "steps"}
+        required = {
+            "version", "id", "title", "description", "category", "inputs", "outputs", "failure",
+            "effect", "retry_safe", "idempotency", "cost", "steps",
+        }
         missing = required - set(action) if isinstance(action, dict) else required
         if missing or action.get("version") != 1 or not isinstance(action.get("steps"), list) or not action["steps"]:
             detail = f"missing {', '.join(sorted(missing))}" if missing else "invalid version or steps"
@@ -335,6 +338,8 @@ def cmd_actions(args) -> int:
             out(f"input: {action['inputs']}")
             out(f"output: {action['outputs']}")
             out(f"failure: {action['failure']}")
+            out(f"effect: {action['effect']} · retry safe: {action['retry_safe']} · idempotency: {action['idempotency']}")
+            out(f"cost: {action['cost']}")
             out()
             out(yaml.safe_dump({"steps": action["steps"]}, sort_keys=False, width=100).rstrip())
         return 0
@@ -1135,8 +1140,16 @@ def cmd_batch(args) -> int:
         extra.append("--require-all")
     if args.stop_after_failures:
         extra += ["--stop-after-failures", str(args.stop_after_failures)]
+    if args.max_tokens:
+        extra += ["--max-tokens", str(args.max_tokens)]
+    if args.max_cost:
+        extra += ["--max-cost", str(args.max_cost)]
+    if args.output_step:
+        extra += ["--output-step", args.output_step]
     if args.git_history:
         extra.append("--git-history")
+    if args.allow_shared_workspace:
+        extra.append("--allow-shared-workspace")
     if args.detach:
         extra.append("--detach")
     if args.json:
@@ -1169,6 +1182,8 @@ def _batch_state(path: Path) -> dict[str, Any]:
         except (OSError, ProcessLookupError):
             pass
     status = str(value.get("status") or controller.get("status") or "unknown")
+    if controller.get("status") in {"cancelling", "cancelled"}:
+        status = str(controller["status"])
     if status in {"starting", "running", "cancelling"} and not alive:
         status = "interrupted"
     return {
@@ -1209,12 +1224,12 @@ def cmd_batch_cancel(args) -> int:
         pid = int(state.get("pid") or 0)
         if pid <= 1 or not state.get("alive"):
             return fail(f"batch controller is not running: {path}")
-        os.killpg(pid, signal.SIGTERM)
         controller = {
             "pid": pid, "status": "cancelling", "batch_dir": str(path),
             "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         }
         (path / "controller.json").write_text(json.dumps(controller, indent=2) + "\n", encoding="utf-8")
+        os.kill(pid, signal.SIGTERM)
     except (OSError, ValueError, json.JSONDecodeError) as error:
         return fail(str(error))
     if args.json:
@@ -1503,6 +1518,21 @@ def cmd_create(args) -> int:
             "gate": 'test -s "$OUT"',
         },
     ]
+    qa_prompt = (
+        "Review the completed workflow artifact against the original input. "
+        "Output JSON only: {\"verdict\": \"pass\"|\"fail\", \"issues\": [\"...\"]}\n"
+        "{artifacts}"
+    )
+    if action:
+        qa_prompt = (
+            f"Review whether the completed artifacts satisfy the `{action['id']}` action contract. "
+            "Do not require the workflow to perform work outside this action's declared purpose.\n"
+            f"Input contract: {action['inputs']}\n"
+            f"Output contract: {action['outputs']}\n"
+            f"Failure contract: {action['failure']}\n"
+            "Output JSON only: {\"verdict\": \"pass\"|\"fail\", \"issues\": [\"...\"]}\n"
+            "{artifacts}"
+        )
     spec = {
         "version": 1,
         "workflow": identifier,
@@ -1513,11 +1543,7 @@ def cmd_create(args) -> int:
         "qa": {
             "model": args.qa_model,
             "thinking": "low",
-            "prompt": (
-                "Review the completed workflow artifact against the original input. "
-                "Output JSON only: {\"verdict\": \"pass\"|\"fail\", \"issues\": [\"...\"]}\n"
-                "{artifacts}"
-            ),
+            "prompt": qa_prompt,
         },
         "steps": steps,
     }
@@ -1721,10 +1747,17 @@ def build_parser() -> argparse.ArgumentParser:
                        help="fail an item if any declared step is skipped")
     batch.add_argument("--stop-after-failures", type=int,
                        help="stop dispatching new items after N failures")
+    batch.add_argument("--max-tokens", type=int,
+                      help="stop dispatch after recorded attempt usage reaches N tokens")
+    batch.add_argument("--max-cost", type=float,
+                      help="stop dispatch after recorded attempt usage reaches this dollar cost")
+    batch.add_argument("--output-step", help="export this step as ordered outputs.jsonl")
     batch.add_argument("--item-timeout", type=float, default=3600,
                        help="hard wall timeout per item (default 3600s)")
     batch.add_argument("--git-history", action="store_true",
                        help="retain per-step Git commits for every item")
+    batch.add_argument("--allow-shared-workspace", action="store_true",
+                       help="allow parallel agent/effect steps after independently ensuring concurrency safety")
     batch.add_argument("--detach", action="store_true",
                        help="run in the background and return a status command")
 

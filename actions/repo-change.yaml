@@ -6,6 +6,10 @@ category: coding
 inputs: A scoped coding request from immutable input or --needs; run with cwd at the target repository.
 outputs: Typed plan, implementation receipt, and a clean non-empty Git diff receipt.
 failure: Fails when planning is malformed, the agent produces no diff, or git diff --check fails.
+effect: repository-write
+retry_safe: conditional
+idempotency: verify-diff-before-retry
+cost: model-plus-agent-loop
 steps:
   - id: plan
     needs: []

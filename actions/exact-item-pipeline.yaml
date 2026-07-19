@@ -6,6 +6,10 @@ category: batch
 inputs: One immutable item; use piw batch to apply the frozen graph to a corpus.
 outputs: READY, VERIFIED, scored, enriched normalized record plus all five step receipts.
 failure: Any missing prefix, malformed score, or skipped stage fails the item when used with --require-all.
+effect: none
+retry_safe: true
+idempotency: not-required
+cost: zero-model-calls
 steps:
   - id: normalize
     needs: []

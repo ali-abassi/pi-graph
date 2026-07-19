@@ -40,8 +40,10 @@ These capabilities are already enforced by the v1 runner and exposed through
 ## Dynamic patterns available now
 
 The action catalog packages proven patterns without expanding this runtime
-vocabulary. `piw add` materializes each action as normal YAML so an agent can
-inspect, edit, validate, and test every node. See [`actions.md`](actions.md).
+vocabulary. `piw actions <id>` exposes inputs, outputs, failure behavior,
+effect class, retry safety, idempotency expectation, and cost shape before
+`piw add` materializes the action as normal YAML. An agent can then inspect,
+edit, validate, and test every node. See [`actions.md`](actions.md).
 
 ### Parallel research and deterministic merge
 

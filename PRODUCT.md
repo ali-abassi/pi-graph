@@ -22,8 +22,9 @@ probabilistic.
    failure contract for agents and editors, exposed by `piw schema --json`.
 3. `piw` — stable human and machine-readable CLI. Every inspection command has
    `--json`; failures use non-zero exit codes and actionable errors.
-4. Reusable actions — versioned input/output/failure contracts that expand at
-   authoring time into ordinary inspectable v1 nodes; no hidden action runtime.
+4. Reusable actions — versioned input/output/failure plus effect, retry-safety,
+   idempotency, and cost contracts that expand at authoring time into ordinary
+   inspectable v1 nodes; no hidden action runtime.
 5. Bulk controller — a frozen graph/corpus contract, bounded item queue,
    isolated attempts, resumability, detached execution, status receipts, and
    fail-closed aggregate completion over the canonical runner.
