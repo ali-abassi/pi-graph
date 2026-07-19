@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-const ACTIONS = ["doctor", "schema", "actions", "add", "list", "create", "graph", "path", "validate", "run", "batch", "batch-status", "batch-cancel", "runs", "detail", "show", "stats", "schedule", "automations", "automation"] as const;
+const ACTIONS = ["doctor", "schema", "actions", "add", "list", "create", "graph", "path", "validate", "run", "batch", "batch-status", "batch-cancel", "runs", "detail", "compare", "show", "set", "stats", "eval", "reports", "schedule", "automations", "automation"] as const;
 const PIW = fileURLToPath(new URL("../bin/piw", import.meta.url));
 const TOOL_MAX_LINES = 500;
 const TOOL_MAX_BYTES = 24 * 1024;
@@ -70,6 +70,35 @@ export function argumentsFor(params: Record<string, unknown>): string[] {
     args.push(step);
     if (params.resolved === true) args.push("--resolved");
   }
+  if (command === "detail") {
+    if (typeof params.run === "string" && params.run.trim()) args.push(params.run.trim());
+    if (typeof params.step === "string" && params.step.trim()) args.push("--step", params.step.trim());
+    if (params.io === true) args.push("--io");
+    if (params.all === true) args.push("--all");
+  }
+  if (command === "compare") {
+    const baseline = typeof params.baselineRun === "string" ? params.baselineRun.trim() : "";
+    const candidate = typeof params.candidateRun === "string" ? params.candidateRun.trim() : "";
+    if (!baseline || !candidate) throw new Error("compare requires baselineRun and candidateRun");
+    args.push(baseline, candidate);
+    if (typeof params.step === "string" && params.step.trim()) args.push("--step", params.step.trim());
+  }
+  if (command === "set") {
+    const step = typeof params.step === "string" ? params.step.trim() : "";
+    if (!step) throw new Error("set requires a step id");
+    args.push(step);
+    if (typeof params.model === "string") args.push("--model", params.model);
+    if (typeof params.thinking === "string") args.push("--thinking", params.thinking);
+    if (typeof params.promptFile === "string" && params.promptFile.trim()) args.push("--prompt-file", params.promptFile.trim());
+    if (typeof params.judgeModel === "string") args.push("--judge-model", params.judgeModel);
+    if (typeof params.judgeThinking === "string") args.push("--judge-thinking", params.judgeThinking);
+    if (params.judgeScore !== undefined) args.push("--judge-score", String(params.judgeScore));
+    if (params.judgeMaxIters !== undefined) args.push("--judge-max-iters", String(params.judgeMaxIters));
+    if (typeof params.judgePromptFile === "string" && params.judgePromptFile.trim()) args.push("--judge-prompt-file", params.judgePromptFile.trim());
+    if (params.judgeKeepBest === true) args.push("--judge-keep-best");
+    if (params.judgeKeepBest === false) args.push("--no-judge-keep-best");
+    if (params.clearJudge === true) args.push("--clear-judge");
+  }
   if (command === "run") {
     if (typeof params.node === "string" && params.node.trim()) args.push("--node", params.node.trim());
     const input = typeof params.input === "string" ? params.input : undefined;
@@ -93,10 +122,23 @@ export function argumentsFor(params: Record<string, unknown>): string[] {
     if (resume) args.push("--resume", resume);
     if (params.requireAll === true) args.push("--require-all");
     if (params.stopAfterFailures !== undefined) args.push("--stop-after-failures", String(params.stopAfterFailures));
+    if (params.maxTokens !== undefined) args.push("--max-tokens", String(params.maxTokens));
+    if (params.maxCost !== undefined) args.push("--max-cost", String(params.maxCost));
+    if (typeof params.outputStep === "string" && params.outputStep.trim()) args.push("--output-step", params.outputStep.trim());
     if (params.itemTimeoutSeconds !== undefined) args.push("--item-timeout", String(params.itemTimeoutSeconds));
     if (params.gitHistory === true) args.push("--git-history");
     if (params.detach === true) args.push("--detach");
   }
+  if (command === "eval") {
+    const inputs = typeof params.inputs === "string" ? params.inputs.trim() : "";
+    const inputFile = typeof params.inputFile === "string" ? params.inputFile.trim() : "";
+    const models = typeof params.models === "string" ? params.models.trim() : "";
+    if (!inputs || !inputFile || !models) throw new Error("eval requires inputs, inputFile, and models");
+    args.push("--inputs", inputs, "--input-file", inputFile, "--models", models);
+    if (params.parallel !== undefined) args.push("--parallel", String(params.parallel));
+    if (params.limit !== undefined) args.push("--limit", String(params.limit));
+  }
+  if (command === "reports" && params.showReports === true) args.push("--show");
   if (command === "batch-status" || command === "batch-cancel") {
     const batchDirectory = typeof params.batchDirectory === "string" ? params.batchDirectory.trim() : "";
     if (!batchDirectory) throw new Error(`${command} requires a batchDirectory`);
@@ -127,12 +169,13 @@ export default function piWorkflows(pi: ExtensionAPI) {
   pi.registerTool({
     name: "pi_workflows",
     label: "Pi Workflows",
-    description: `Create, validate, run, and inspect deterministic Pi workflow graphs, including reusable action templates and resumable bulk execution over large input corpora. Use workflows for repeatable multi-step work whose ordering, gates, routes, evidence, or schedule must be mechanical rather than remembered by a model. Output is limited to ${TOOL_MAX_LINES} lines or ${formatSize(TOOL_MAX_BYTES)}; complete truncated output is saved to a temporary file.`,
-    promptSnippet: "Operate deterministic workflow DAGs with explicit gates and evidence",
+    description: `Create, run, inspect, QA, compare, evaluate, and optimize deterministic workflow graphs. Inspect whole runs or individual nodes, configure models and judges, compare cost/tokens/latency, and execute one graph over large corpora. Output is limited to ${TOOL_MAX_LINES} lines or ${formatSize(TOOL_MAX_BYTES)}; complete truncated output is saved to a temporary file.`,
+    promptSnippet: "Run deterministic workflows; inspect, QA, compare, and optimize every node",
     promptGuidelines: [
       "Use pi_workflows validate before pi_workflows run; validation is free and failed validation must block paid execution.",
       "Use the actions catalog before authoring common extraction, review, research, coding, JSONL, or exact-item patterns; add expands templates into ordinary inspectable nodes.",
-      "Use pi_workflows detail, show, and stats to verify artifacts, gates, cost, and cache behavior instead of inferring success from a process exit alone.",
+      "After every run, use detail for the whole trace or one step; use compare before promoting a model, prompt, reasoning, or judge change.",
+      "Use set to configure a node and its independent judge, run with node to force it fresh, and eval to compare models over a fixed corpus.",
       "For many inputs, canary with batch limit first, then use batch with detach and requireAll; poll batch-status until every item has a complete execution contract.",
       "Use pi_workflows schedule only after validation and one successful manual smoke; scheduling validates again and fails closed.",
       "Use pi_workflows only when a repeatable graph earns its complexity; use ordinary tools for a one-step task.",
@@ -149,7 +192,20 @@ export default function piWorkflows(pi: ExtensionAPI) {
       actionId: Type.Optional(Type.String({ maxLength: 100 })),
       needs: Type.Optional(Type.String({ maxLength: 2_000 })),
       step: Type.Optional(Type.String({ maxLength: 200 })),
+      run: Type.Optional(Type.String({ maxLength: 200 })),
+      baselineRun: Type.Optional(Type.String({ maxLength: 200 })),
+      candidateRun: Type.Optional(Type.String({ maxLength: 200 })),
+      io: Type.Optional(Type.Boolean()),
+      all: Type.Optional(Type.Boolean()),
       node: Type.Optional(Type.String({ maxLength: 200 })),
+      promptFile: Type.Optional(Type.String({ maxLength: 2_000 })),
+      judgeModel: Type.Optional(Type.String({ maxLength: 200 })),
+      judgeThinking: Type.Optional(StringEnum(["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const)),
+      judgeScore: Type.Optional(Type.Number({ minimum: 0 })),
+      judgeMaxIters: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
+      judgePromptFile: Type.Optional(Type.String({ maxLength: 2_000 })),
+      judgeKeepBest: Type.Optional(Type.Boolean()),
+      clearJudge: Type.Optional(Type.Boolean()),
       input: Type.Optional(Type.String({ maxLength: 100_000 })),
       inputFile: Type.Optional(Type.String({ maxLength: 2_000 })),
       inputs: Type.Optional(Type.String({ maxLength: 2_000 })),
@@ -159,11 +215,16 @@ export default function piWorkflows(pi: ExtensionAPI) {
       resume: Type.Optional(Type.String({ maxLength: 2_000 })),
       requireAll: Type.Optional(Type.Boolean()),
       stopAfterFailures: Type.Optional(Type.Integer({ minimum: 1 })),
+      maxTokens: Type.Optional(Type.Integer({ minimum: 1 })),
+      maxCost: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
+      outputStep: Type.Optional(Type.String({ maxLength: 200 })),
       itemTimeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 86_400 })),
       gitHistory: Type.Optional(Type.Boolean()),
       detach: Type.Optional(Type.Boolean()),
       batchDirectory: Type.Optional(Type.String({ maxLength: 2_000 })),
       noCache: Type.Optional(Type.Boolean()),
+      models: Type.Optional(Type.String({ maxLength: 2_000 })),
+      showReports: Type.Optional(Type.Boolean()),
       resolved: Type.Optional(Type.Boolean()),
       intervalMinutes: Type.Optional(Type.Integer({ minimum: 1 })),
       daily: Type.Optional(Type.String({ maxLength: 5 })),

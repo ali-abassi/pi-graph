@@ -135,6 +135,15 @@ def latest_run(workflow: dict[str, Any]) -> dict[str, Any] | None:
     return runs[0] if runs else None
 
 
+def matching_run(runs: list[dict[str, Any]], query: str) -> dict[str, Any] | None:
+    """Prefer an exact run id; accept a substring only when it is unique."""
+    exact = next((run for run in runs if run["id"] == query), None)
+    if exact:
+        return exact
+    matches = [run for run in runs if query in run["id"]]
+    return matches[0] if len(matches) == 1 else None
+
+
 def read_ledger(run: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not run:
         return []
@@ -946,7 +955,7 @@ def cmd_show(args) -> int:
     run = latest_run(workflow) if not args.run else None
     if args.run:
         runs = loopd.list_workflow_runs(workflow["id"], limit=200, runs_dir=workflow.get("runs_dir"))
-        run = next((r for r in runs if r["id"] == args.run or args.run in r["id"]), None)
+        run = matching_run(runs, args.run)
     if not run:
         return fail("no matching run (try: pygraph runs <id>)")
 
@@ -1048,7 +1057,7 @@ def cmd_detail(args) -> int:
     runs = loopd.list_workflow_runs(workflow["id"], limit=200, runs_dir=workflow.get("runs_dir"))
     if not runs:
         return fail("no runs yet")
-    run = (next((r for r in runs if r["id"] == args.run or args.run in r["id"]), None)
+    run = (matching_run(runs, args.run)
            if args.run else runs[0])
     if not run:
         return fail(f"no run matching '{args.run}'")
@@ -1057,6 +1066,12 @@ def cmd_detail(args) -> int:
         detail = pygraph.run_detail(Path(workflow["path"]), Path(run["path"]))
     except pygraph.WorkflowParseError as error:
         return fail(str(error))
+
+    if args.step:
+        selected = next((step for step in detail["steps"] if step["id"] == args.step), None)
+        if not selected:
+            return fail(f"run has no step '{args.step}'")
+        detail["steps"] = [selected]
 
     if args.json:
         out(json.dumps(detail, separators=(",", ":")))
@@ -1097,7 +1112,7 @@ def cmd_detail(args) -> int:
         if step["output"]:
             body = step["output"].strip()
             out("   --- output ---")
-            out(textwrap.indent(body if args.io else body[:400], "   | "))
+            out(textwrap.indent(body if args.io or args.step else body[:400], "   | "))
         if step["stderr"].strip():
             out(textwrap.indent(f"stderr: {step['stderr'].strip()[:400]}", "   ! "))
         out()
@@ -1105,6 +1120,99 @@ def cmd_detail(args) -> int:
     if detail["qa"]:
         out(f"QA: {detail['qa'].strip()[:400]}")
     return 0 if info["ok"] else 1
+
+
+# ---------------------------------------------------------------- run compare
+
+
+def cmd_compare(args) -> int:
+    """Compare two evidenced runs without asking a model to summarize them."""
+    workflow = need(args.workflow)
+    runs = loopd.list_workflow_runs(workflow["id"], limit=200, runs_dir=workflow.get("runs_dir"))
+
+    def selected(query: str) -> dict[str, Any] | None:
+        return matching_run(runs, query)
+
+    baseline_run = selected(args.baseline)
+    candidate_run = selected(args.candidate)
+    if not baseline_run:
+        return fail(f"no baseline run matching '{args.baseline}'")
+    if not candidate_run:
+        return fail(f"no candidate run matching '{args.candidate}'")
+
+    try:
+        baseline = pygraph.run_detail(Path(workflow["path"]), Path(baseline_run["path"]))
+        candidate = pygraph.run_detail(Path(workflow["path"]), Path(candidate_run["path"]))
+    except pygraph.WorkflowParseError as error:
+        return fail(str(error))
+
+    baseline_steps = {step["id"]: step for step in baseline["steps"]}
+    candidate_steps = {step["id"]: step for step in candidate["steps"]}
+    step_ids = [step["id"] for step in candidate["steps"]]
+    if args.step:
+        if args.step not in baseline_steps or args.step not in candidate_steps:
+            return fail(f"both runs must contain step '{args.step}'")
+        step_ids = [args.step]
+
+    comparisons = []
+    regressions = []
+    for step_id in step_ids:
+        before = baseline_steps.get(step_id) or {}
+        after = candidate_steps.get(step_id) or {}
+        before_status = before.get("status", "missing")
+        after_status = after.get("status", "missing")
+        if before_status in {"passed", "cached"} and after_status not in {"passed", "cached"}:
+            regressions.append(step_id)
+        comparisons.append({
+            "id": step_id,
+            "baseline": {
+                "status": before_status, "model": before.get("model"),
+                "cost": float(before.get("cost") or 0), "tokens": int(before.get("tokens") or 0),
+                "seconds": float(before.get("seconds") or 0), "attempts": int(before.get("attempts") or 0),
+            },
+            "candidate": {
+                "status": after_status, "model": after.get("model"),
+                "cost": float(after.get("cost") or 0), "tokens": int(after.get("tokens") or 0),
+                "seconds": float(after.get("seconds") or 0), "attempts": int(after.get("attempts") or 0),
+            },
+            "delta": {
+                "cost": round(float(after.get("cost") or 0) - float(before.get("cost") or 0), 6),
+                "tokens": int(after.get("tokens") or 0) - int(before.get("tokens") or 0),
+                "seconds": round(float(after.get("seconds") or 0) - float(before.get("seconds") or 0), 3),
+            },
+        })
+
+    total_delta = comparisons[0]["delta"] if args.step else {
+        "cost": round(candidate["run"]["cost"] - baseline["run"]["cost"], 6),
+        "tokens": candidate["run"]["tokens"] - baseline["run"]["tokens"],
+        "seconds": round(candidate["run"]["seconds"] - baseline["run"]["seconds"], 3),
+    }
+    payload = {
+        "workflow": workflow["id"],
+        "baseline": baseline["run"],
+        "candidate": candidate["run"],
+        "delta": total_delta,
+        "quality_regressions": regressions,
+        "steps": comparisons,
+    }
+    if args.json:
+        out(json.dumps(payload, separators=(",", ":")))
+        return 1 if regressions else 0
+
+    delta = payload["delta"]
+    out(f"{workflow['name']} · {baseline['run']['id']} → {candidate['run']['id']}")
+    out(f"cost {delta['cost']:+.6f} · tokens {delta['tokens']:+d} · compute {delta['seconds']:+.1f}s"
+        + (f" · REGRESSION {','.join(regressions)}" if regressions else ""))
+    out()
+    out(f"  {'STEP'.ljust(max(len(step_id) for step_id in step_ids))}  STATUS             MODEL                     Δ COST      Δ TOK   Δ SEC")
+    for item in comparisons:
+        width = max(len(step_id) for step_id in step_ids)
+        status = f"{item['baseline']['status']}→{item['candidate']['status']}"
+        model = str(item["candidate"]["model"] or "-")[-25:]
+        change = item["delta"]
+        out(f"  {item['id'].ljust(width)}  {status.ljust(18)} {model.ljust(25)} "
+            f"{change['cost']:+.6f} {change['tokens']:+8d} {change['seconds']:+7.1f}")
+    return 1 if regressions else 0
 
 
 # ------------------------------------------------------------------------ evals
@@ -1351,6 +1459,42 @@ def cmd_set(args) -> int:
         changes["from"] = args.from_step
     if args.produces is not None:
         changes["produces"] = ([p for p in args.produces.split(",") if p] if args.produces else "")
+    judge_args = (
+        args.judge_model, args.judge_thinking, args.judge_score, args.judge_max_iters,
+        args.judge_prompt_file, args.judge_keep_best,
+    )
+    if args.clear_judge and any(value is not None for value in judge_args):
+        return fail("--clear-judge cannot be combined with judge configuration")
+    if args.clear_judge:
+        changes["judge"] = ""
+    elif any(value is not None for value in judge_args):
+        spec = yaml.safe_load(Path(workflow["path"]).read_text(encoding="utf-8")) or {}
+        step = next((item for item in spec.get("steps", []) if item.get("id") == args.step), None)
+        if not step:
+            return fail(f"unknown step: {args.step}")
+        if step.get("cmd"):
+            return fail("per-node QA applies to model steps, not command steps")
+        judge = dict(step.get("judge") or {})
+        if args.judge_model is not None:
+            judge["model"] = args.judge_model
+        if args.judge_thinking is not None:
+            judge["thinking"] = args.judge_thinking
+        if args.judge_score is not None:
+            judge["score"] = args.judge_score
+        if args.judge_max_iters is not None:
+            judge["max_iters"] = args.judge_max_iters
+        if args.judge_keep_best is not None:
+            judge["keep_best"] = args.judge_keep_best
+        if args.judge_prompt_file is not None:
+            prompt_path = Path(args.judge_prompt_file).expanduser()
+            if not prompt_path.is_file():
+                return fail(f"no such judge prompt file: {prompt_path}")
+            judge["prompt"] = prompt_path.read_text(encoding="utf-8")
+        missing = [key for key in ("prompt", "score") if key not in judge]
+        if missing:
+            flags = {"prompt": "--judge-prompt-file", "score": "--judge-score"}
+            return fail("new per-node QA needs " + " and ".join(flags[key] for key in missing))
+        changes["judge"] = judge
     if not changes:
         return fail("nothing to change (see: pygraph set --help)")
 
@@ -1731,8 +1875,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     detail = add("detail", "full per-step breakdown of one run")
     detail.add_argument("run", nargs="?", help="run id (default: most recent)")
+    detail.add_argument("--step", help="show one node with its full artifact and judge evidence")
     detail.add_argument("--io", action="store_true", help="include full sent/received bodies")
     detail.add_argument("--all", action="store_true", help="include steps that never ran")
+
+    compare = add("compare", "compare cost, tokens, latency, models, and status between two runs")
+    compare.add_argument("baseline", help="baseline run id or unique substring")
+    compare.add_argument("candidate", help="candidate run id or unique substring")
+    compare.add_argument("--step", help="compare only this node")
 
     batch = add("batch", "run the exact workflow across an isolated input corpus")
     batch.add_argument("--inputs", required=True, help="corpus: .jsonl, a directory, or a lines file")
@@ -1815,6 +1965,14 @@ def build_parser() -> argparse.ArgumentParser:
                              " (types: string number integer boolean object array; optional: true); '' clears")
     setter.add_argument("--produces", metavar="PATHS",
                         help="comma-separated files to copy into the run dir; '' clears")
+    setter.add_argument("--judge-model", help="per-node QA model")
+    setter.add_argument("--judge-thinking", choices=["off", "minimal", "low", "medium", "high", "xhigh", "max"])
+    setter.add_argument("--judge-score", type=float, help="minimum passing score for per-node QA")
+    setter.add_argument("--judge-max-iters", type=int, choices=range(1, 21), help="maximum judge/refine attempts")
+    setter.add_argument("--judge-prompt-file", help="judge prompt containing {out}")
+    setter.add_argument("--judge-keep-best", action=argparse.BooleanOptionalAction, default=None,
+                        help="keep the highest-scoring attempt when none passes")
+    setter.add_argument("--clear-judge", action="store_true", help="remove per-node QA")
 
     stats = add("stats", "aggregate pass rate, cost and cache counters")
     stats.add_argument("-n", "--limit", type=int, default=50)
@@ -1844,7 +2002,7 @@ COMMANDS = {
     "actions": cmd_actions, "add": cmd_add_action,
     "ui": cmd_ui,
     "runs": cmd_runs, "show": cmd_show, "stats": cmd_stats, "path": cmd_path,
-    "set": cmd_set, "detail": cmd_detail, "batch": cmd_batch,
+    "set": cmd_set, "detail": cmd_detail, "compare": cmd_compare, "batch": cmd_batch,
     "batch-status": cmd_batch_status, "batch-cancel": cmd_batch_cancel, "eval": cmd_eval,
     "reports": cmd_reports, "doctor": cmd_doctor, "create": cmd_create,
     "schedule": cmd_schedule, "automations": cmd_automations,

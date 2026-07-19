@@ -18,6 +18,87 @@ CLI = ROOT / "scripts" / "piw.py"
 
 
 class ProductCliTests(unittest.TestCase):
+    def test_agent_can_inspect_one_node_compare_runs_and_configure_node_qa(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            steps = root / "steps.yaml"
+            steps.write_text(yaml.safe_dump({
+                "version": 1,
+                "workflow": "inspection-loop",
+                "input": {"required": True, "description": "fixture"},
+                "steps": [
+                    {"id": "first", "cmd": 'cat "$INPUT"'},
+                    {"id": "second", "needs": ["first"], "cmd": 'cat "$RUN/first.md"'},
+                ],
+            }, sort_keys=False), encoding="utf-8")
+            for value in ("baseline", "candidate"):
+                result = subprocess.run(
+                    [sys.executable, str(RUNNER), str(steps), "--input", value],
+                    capture_output=True, text=True, timeout=30, check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            runs = sorted((root / "runs").iterdir())
+            self.assertEqual(len(runs), 2)
+            baseline, candidate = runs
+            candidate_ledger = json.loads((candidate / "ledger.json").read_text(encoding="utf-8"))
+            target = next(item for item in candidate_ledger if item["id"] == "second")
+            target.update({"model": "test/cheap", "cost": 0.01, "total": 50, "seconds": 2.0})
+            (candidate / "ledger.json").write_text(json.dumps(candidate_ledger), encoding="utf-8")
+
+            inspected = subprocess.run(
+                [sys.executable, str(CLI), "detail", str(steps), candidate.name,
+                 "--step", "second", "--json"],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            self.assertEqual(inspected.returncode, 0, inspected.stderr)
+            inspection = json.loads(inspected.stdout)
+            self.assertEqual([item["id"] for item in inspection["steps"]], ["second"])
+            self.assertEqual(inspection["steps"][0]["output"], "candidate")
+
+            compared = subprocess.run(
+                [sys.executable, str(CLI), "compare", str(steps), baseline.name, candidate.name,
+                 "--step", "second", "--json"],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            self.assertEqual(compared.returncode, 0, compared.stderr)
+            comparison = json.loads(compared.stdout)
+            self.assertEqual(comparison["delta"]["cost"], 0.01)
+            self.assertEqual(comparison["steps"][0]["candidate"]["model"], "test/cheap")
+            self.assertEqual(comparison["quality_regressions"], [])
+
+            model_steps = root / "model" / "steps.yaml"
+            model_steps.parent.mkdir()
+            model_steps.write_text(yaml.safe_dump({
+                "version": 1, "workflow": "node-qa", "model": "test/generator",
+                "steps": [{"id": "draft", "prompt": "Draft from {input}"}],
+            }, sort_keys=False), encoding="utf-8")
+            judge_prompt = root / "judge.txt"
+            judge_prompt.write_text(
+                'Score the candidate. Return JSON: {"score": 0, "feedback": "..."}\n{out}\n',
+                encoding="utf-8",
+            )
+            configured = subprocess.run(
+                [sys.executable, str(CLI), "set", str(model_steps), "draft",
+                 "--judge-model", "test/reviewer", "--judge-thinking", "low",
+                 "--judge-score", "8", "--judge-max-iters", "2",
+                 "--judge-prompt-file", str(judge_prompt)],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            self.assertEqual(configured.returncode, 0, configured.stderr)
+            judge = yaml.safe_load(model_steps.read_text(encoding="utf-8"))["steps"][0]["judge"]
+            self.assertEqual(judge["model"], "test/reviewer")
+            self.assertEqual(judge["score"], 8.0)
+            self.assertEqual(judge["max_iters"], 2)
+            self.assertIn("{out}", judge["prompt"])
+
+            cleared = subprocess.run(
+                [sys.executable, str(CLI), "set", str(model_steps), "draft", "--clear-judge"],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            self.assertEqual(cleared.returncode, 0, cleared.stderr)
+            self.assertNotIn("judge", yaml.safe_load(model_steps.read_text(encoding="utf-8"))["steps"][0])
+
     def test_schema_exposes_node_kinds_and_every_runtime_input(self) -> None:
         result = subprocess.run(
             [sys.executable, str(CLI), "schema", "--json"],

@@ -24,8 +24,24 @@ test("tool arguments preserve explicit workflow inputs and machine output", () =
     ["create", "Review", "--action", "parallel-review"],
   );
   assert.deepEqual(
-    argumentsFor({ action: "batch", workflow: "enrich", inputs: "items.jsonl", parallel: 8, requireAll: true, detach: true, json: true }),
-    ["batch", "enrich", "--inputs", "items.jsonl", "--parallel", "8", "--require-all", "--detach", "--json"],
+    argumentsFor({ action: "batch", workflow: "enrich", inputs: "items.jsonl", parallel: 8, requireAll: true, maxTokens: 1000, maxCost: 2, outputStep: "publish", detach: true, json: true }),
+    ["batch", "enrich", "--inputs", "items.jsonl", "--parallel", "8", "--require-all", "--max-tokens", "1000", "--max-cost", "2", "--output-step", "publish", "--detach", "--json"],
+  );
+  assert.deepEqual(
+    argumentsFor({ action: "detail", workflow: "review", run: "run-2", step: "verdict", io: true, json: true }),
+    ["detail", "review", "run-2", "--step", "verdict", "--io", "--json"],
+  );
+  assert.deepEqual(
+    argumentsFor({ action: "compare", workflow: "review", baselineRun: "run-1", candidateRun: "run-2", step: "verdict", json: true }),
+    ["compare", "review", "run-1", "run-2", "--step", "verdict", "--json"],
+  );
+  assert.deepEqual(
+    argumentsFor({ action: "set", workflow: "review", step: "verdict", model: "test/luna", thinking: "low", judgeModel: "test/terra", judgeScore: 8, judgePromptFile: "qa.txt" }),
+    ["set", "review", "verdict", "--model", "test/luna", "--thinking", "low", "--judge-model", "test/terra", "--judge-score", "8", "--judge-prompt-file", "qa.txt"],
+  );
+  assert.deepEqual(
+    argumentsFor({ action: "eval", workflow: "review", inputs: "evals.jsonl", inputFile: "input.txt", models: "test/luna,test/terra", parallel: 2 }),
+    ["eval", "review", "--inputs", "evals.jsonl", "--input-file", "input.txt", "--models", "test/luna,test/terra", "--parallel", "2"],
   );
   assert.deepEqual(
     argumentsFor({ action: "batch-status", batchDirectory: "/tmp/batch", json: true }),
@@ -38,6 +54,9 @@ test("tool arguments preserve explicit workflow inputs and machine output", () =
   assert.throws(() => argumentsFor({ action: "show", workflow: "triage" }), /requires a step/);
   assert.throws(() => argumentsFor({ action: "batch", workflow: "triage" }), /requires an inputs/);
   assert.throws(() => argumentsFor({ action: "add", workflow: "triage" }), /requires an actionId/);
+  assert.throws(() => argumentsFor({ action: "compare", workflow: "triage" }), /requires baselineRun/);
+  assert.throws(() => argumentsFor({ action: "set", workflow: "triage" }), /requires a step/);
+  assert.throws(() => argumentsFor({ action: "eval", workflow: "triage" }), /requires inputs/);
 });
 
 

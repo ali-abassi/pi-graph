@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added focused node inspection with `piw detail --step`, deterministic run
+  comparison with `piw compare`, and CLI configuration for per-node QA judges.
+- Fixed run lookup so an exact run id wins over a newer run that merely shares
+  its prefix.
+- Rewrote the public introduction around the short create, run, inspect,
+  improve, compare, and evaluate loop, with production cost/model/eval controls
+  visible above the fold.
 - Removed the decorative workflow graph from the hero artwork after it failed
   to render cleanly; the Pi mark, product name, and deterministic-graph promise
   remain.

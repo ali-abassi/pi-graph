@@ -34,6 +34,8 @@ steps:
 piw validate steps.yaml
 piw run steps.yaml --input-file changes.txt
 piw detail steps.yaml
+piw detail steps.yaml RUN_ID --step draft --io
+piw compare steps.yaml BASELINE_RUN CANDIDATE_RUN
 ```
 
 ## Execution runtimes
@@ -88,6 +90,21 @@ Command nodes and gates receive:
 
 Judge prompts additionally receive `{out}`. Final `qa.prompt` receives
 `{artifacts}`. Both also receive `{run}`.
+
+Every model step may declare `judge:` as independent per-node QA. The judge
+scores the artifact, supplies feedback, and can trigger a bounded regenerate
+loop before the mechanical gate remains authoritative. Agents can configure it
+without leaving the CLI:
+
+```bash
+piw set steps.yaml draft --judge-prompt-file qa.txt --judge-score 8 \
+  --judge-model openai-codex/gpt-5.6-terra --judge-max-iters 3
+```
+
+Use `piw detail <workflow> <run> --step <id> --io` to inspect one node's full
+artifact and judge trail. Use `piw compare <workflow> <baseline> <candidate>`
+to compare status, model, cost, tokens, and compute time without another model
+call.
 
 ## Bulk execution
 

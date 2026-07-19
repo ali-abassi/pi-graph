@@ -9,59 +9,52 @@
 
 # pi workflows
 
-**Your agent does not get to skip steps.**
+**Agents skip steps. pi workflows doesn't.**
 
-Have you ever given an agent five exact steps, then watched it skip two, reorder
-the rest, and confidently say it was done? The model thought it knew better.
-Now the result is incomplete, the evidence is missing, and you have to inspect
-everything yourself.
+Deterministic YAML workflows for Pi, Codex, Claude Code, and other CLI agents.
 
-Never let that happen again. **pi workflows** turns required work into a
-deterministic graph that code—not the model—controls. Every declared step runs
-only after its dependencies, every branch follows typed rules, and every gate
-must pass before the workflow can claim success. Models still research, write,
-review, and code; they just cannot silently rewrite the process.
+Create. Run. Inspect the whole run or one node. Add QA to any model step.
+Change the prompt, model, or reasoning. Run again. Compare quality, cost,
+tokens, and latency. Repeat.
 
-Write the workflow once in readable YAML. Run it for one task or 1,000 inputs.
-Inspect every action, retry only failed work, compare models node by node, and
-see exactly where the time and tokens went.
+Code owns the graph, gates, retries, budgets, and completion. Models do the
+work; they cannot silently rewrite the process.
 
-> Deterministic means the graph, transitions, gates, and completion rules are
-> code-owned. Live model outputs can still vary, so pi workflows lets you pin
-> models, validates outputs, and preserves evidence instead of pretending LLM
-> answers are identical.
+## The loop
 
-> pi workflows is an independent community project. It uses Pi's public package,
-> skill, JSON-mode, and model interfaces; it is not an official Pi project.
+```bash
+piw create review --action parallel-review
+piw run review/steps.yaml --input-file task.md
 
-## What your agent can no longer skip
+# Inspect the full run, then one node with its artifact and QA trail
+piw detail review/steps.yaml RUN_ID
+piw detail review/steps.yaml RUN_ID --step parallel-review-verdict --io
 
-- **The order.** Dependencies, parallel work, routes, retries, timeouts, and stop
-  conditions are enforced by the runner.
-- **The quality checks.** Schemas and shell gates decide whether a node passed;
-  a confident model cannot wave a failed check through.
-- **The evidence.** Every run keeps inputs, outputs, attempts, errors, tokens,
-  cost, timing, cache state, and Git history.
-- **The scale contract.** The same validated graph can run across 1,000 isolated
-  inputs with bounded concurrency, resumable receipts, and ordered outputs.
-- **The cost controls.** Pin models and reasoning per node, compare candidates
-  against fixed judges, and optimize the actual hotspot instead of guessing.
-- **The reusable work.** Start from inspectable action templates for review,
-  extraction, coding, evidence, JSONL, failure triage, and exact-item pipelines.
-- **Portable by default.** The CLI and YAML format work without Agent X or
-  Loops. Pi, Codex, and Claude Code discover the same installed skill.
-
-```mermaid
-flowchart LR
-  A["Agent authors steps.yaml"] --> V["Validate graph + contracts"]
-  V -->|pass| R["Run deterministic DAG"]
-  V -->|fail| A
-  R --> G["Mechanical gates"]
-  G -->|retry within budget| R
-  G --> E["Evidence ledger"]
-  E --> O["Evaluate + optimize"]
-  O --> A
+# Change one node, rerun it fresh, compare it with the baseline
+piw set review/steps.yaml parallel-review-verdict \
+  --model openai-codex/gpt-5.6-luna --thinking low
+piw run review/steps.yaml --input-file task.md --node parallel-review-verdict
+piw compare review/steps.yaml BASELINE_RUN CANDIDATE_RUN
 ```
+
+## Production controls
+
+- **Node evidence:** input, output, model, attempts, gate, QA, tokens, cost,
+  and latency for every node.
+- **Per-node QA:** an independent judge and bounded improve/retest loop on any
+  model step, configured in YAML or with `piw set`.
+- **Model selection:** per-node models and reasoning; `piw eval` compares models
+  over the same corpus while judges stay fixed.
+- **Cost control:** ledgers, caching, run comparison, aggregate stats, and batch
+  token/cost ceilings.
+- **Scale:** one frozen graph across 1,000 isolated inputs, with resumable
+  receipts and ordered outputs.
+- **CLI first:** author, run, inspect, evaluate, and optimize without the UI.
+
+> Deterministic orchestration does not mean identical LLM answers. pi workflows
+> pins configuration, validates outputs, and preserves the evidence.
+
+> Independent community project; not an official Pi project.
 
 ## Where it shines: one exact workflow, 1,000 items
 
@@ -306,8 +299,16 @@ valid-but-wrong model response cannot silently send work down the wrong path.
 ## Test, evaluate, optimize
 
 ```bash
-# Run one action fresh; upstream artifacts may come from cache
+# Inspect the entire run or one node and its judge evidence
+piw detail steps.yaml RUN_ID
+piw detail steps.yaml RUN_ID --step draft --io
+
+# Change one node and run it fresh; upstream artifacts may come from cache
+piw set steps.yaml draft --model openai-codex/gpt-5.6-luna --thinking low
 piw run steps.yaml --node draft
+
+# Compare node status, model, cost, tokens, and latency between runs
+piw compare steps.yaml BASELINE_RUN CANDIDATE_RUN
 
 # Run the exact graph across a corpus; fail if any declared step is skipped
 piw batch steps.yaml --inputs items.jsonl --require-all --parallel 8
@@ -326,7 +327,7 @@ artifacts blindly.
 
 ## Examples
 
-The [`examples/`](examples/) catalog contains 14 runnable workflows, from two
+The [`examples/`](examples/) catalog contains 15 runnable workflows, from two
 shell steps to parallel agents, typed routing, tool allowlists, bounded judge
 loops, final QA, caching, cost analysis, and an exact five-step 1,000-item bulk
 pipeline.
@@ -358,8 +359,13 @@ piw batch-status <dir>            inspect a detached bulk job
 piw batch-cancel <dir>            stop a detached bulk job
 piw ui <workflow>                 open the optional local graph studio
 piw detail <workflow>             inspect the latest run
+piw detail <workflow> --step <id> inspect one node and its QA trail
+piw compare <workflow> <a> <b>    compare two evidenced runs by node
 piw show <workflow> <step>        print one artifact
+piw set <workflow> <step> ...     edit model, prompt, routing, gate, or node QA
 piw stats <workflow>              pass, cache, token, cost, and timing counters
+piw eval <workflow> ...           compare models against a fixed corpus/judge
+piw reports <workflow>            inspect batch and evaluation reports
 piw schedule <workflow> ...       add an optional durable Loops schedule
 piw doctor [--json]               verify the installation and integrations
 ```

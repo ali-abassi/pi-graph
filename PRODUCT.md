@@ -55,6 +55,11 @@ probabilistic.
   a paid call.
 - Run evidence includes per-node state, attempts, resolved input, output,
   verifier result, tokens, cost, time, cache behavior, and final QA.
+- The CLI can isolate one node's complete run evidence, configure its model and
+  independent judge, rerun it, and mechanically compare baseline and candidate
+  runs without paying a model to summarize the trace.
+- Model evaluation holds the workflow and judges fixed while comparing models
+  over the same corpus; cost, token, latency, pass, and QA evidence stay visible.
 - Retries classify the failure, honor declared eligibility, and record bounded
   replay-stable pacing rather than blindly repeating permanent errors.
 - Agents receive the smallest useful command/tool result and can branch on

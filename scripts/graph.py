@@ -468,7 +468,7 @@ EDITABLE = {
     # branching workflow without hand-writing yaml.
     "when", "from", "produces",
     # A step's output contract, so an agent can act on validate's advice.
-    "schema",
+    "schema", "judge",
 }
 
 
