@@ -86,7 +86,7 @@ steps:
 
 Mechanics (the load-bearing rules):
 
-- **One pi call per step** (`--mode json`, isolated: no session/extensions/skills/context files), model + thinking pinned per step. Final assistant message = artifact; a final `stopReason` other than `stop` fails the step even when pi exits 0.
+- **One pi call per step** (`--mode json`, isolated: no session/project trust/extensions/skills/context files or startup refresh), model + thinking pinned per step. Every event line must parse, the requested provider/model must match, and `agent_settled` must follow the final successful assistant message before its text becomes the artifact.
 - **Three step flavors, weakest that works:** `cmd:` = code (zero variance) · `prompt:` = one isolated completion · `prompt:` + `agent: true` = full tool loop with repo context, gated on the produced effect. `tools: "read,bash"` = allowlisted middle ground. Another harness = `cmd: codex exec "..."`.
 - **DAG execution:** deps = `needs: [ids]` ∪ `{step.x}` refs; no `needs` key → implicit dep on the previous listed step (linear yamls stay valid). A `cmd:` reading `$RUN/<id>.md` MUST declare it in `needs`. Failed step skips only its descendants. Forward refs rejected at load.
 - **Inputs and placeholders:** `piw run x --input ...` or `--input-file ...` creates immutable `input.txt` inside that run. `{input}` inserts it as explicitly untrusted data; command steps receive `$INPUT`. `{step.<id>}` inlines an artifact; `{prev}` is the previous listed step; `{run}` is the run directory.

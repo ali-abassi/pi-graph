@@ -157,13 +157,16 @@ class ProductCliTests(unittest.TestCase):
             fake_bin = root / "bin"
             fake_bin.mkdir()
             fake_pi = fake_bin / "pi"
+            args_path = root / "pi-args.txt"
             fake_pi.write_text(
                 "#!/bin/sh\n"
+                "printf '%s\\n' \"$@\" > \"$FAKE_PI_ARGS\"\n"
                 "printf '%s\\n' '{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\","
-                "\"stopReason\":\"stop\",\"content\":[{\"type\":\"text\","
+                "\"provider\":\"test\",\"model\":\"luna\",\"stopReason\":\"stop\",\"content\":[{\"type\":\"text\","
                 "\"text\":\"{\\\"verdict\\\":\\\"pass\\\",\\\"issues\\\":[]}\"}],"
                 "\"usage\":{\"input\":5,\"output\":2,\"totalTokens\":7,"
-                "\"cost\":{\"total\":0.001}}}}'\n",
+                "\"cost\":{\"total\":0.001}}}}'\n"
+                "printf '%s\\n' '{\"type\":\"agent_settled\"}'\n",
                 encoding="utf-8",
             )
             fake_pi.chmod(0o755)
@@ -175,7 +178,11 @@ class ProductCliTests(unittest.TestCase):
                 "steps": [{"id": "artifact", "cmd": "printf artifact"}],
                 "qa": {"model": "test/luna", "prompt": "Review: {artifacts}"},
             }, sort_keys=False), encoding="utf-8")
-            env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"}
+            env = {
+                **os.environ,
+                "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+                "FAKE_PI_ARGS": str(args_path),
+            }
             result = subprocess.run(
                 [sys.executable, str(RUNNER), str(steps)],
                 capture_output=True, text=True, env=env, timeout=30, check=False,
@@ -187,6 +194,38 @@ class ProductCliTests(unittest.TestCase):
             self.assertEqual(qa["total"], 7)
             self.assertEqual(qa["cost"], 0.001)
             self.assertTrue(qa["passed"])
+            pi_args = args_path.read_text(encoding="utf-8").splitlines()
+            for flag in ("--no-session", "--no-approve", "--offline", "--no-extensions", "--no-skills"):
+                self.assertIn(flag, pi_args)
+
+    def test_model_step_rejects_an_unsettled_pi_json_stream(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_pi = fake_bin / "pi"
+            fake_pi.write_text(
+                "#!/bin/sh\n"
+                "printf '%s\\n' '{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\","
+                "\"provider\":\"test\",\"model\":\"luna\",\"stopReason\":\"stop\","
+                "\"content\":[{\"type\":\"text\",\"text\":\"looks finished\"}]}}'\n",
+                encoding="utf-8",
+            )
+            fake_pi.chmod(0o755)
+            steps = root / "steps.yaml"
+            steps.write_text(yaml.safe_dump({
+                "version": 1,
+                "workflow": "unsettled",
+                "model": "test/luna",
+                "steps": [{"id": "draft", "prompt": "Return text", "retries": 0}],
+            }, sort_keys=False), encoding="utf-8")
+            env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"}
+            result = subprocess.run(
+                [sys.executable, str(RUNNER), str(steps)],
+                capture_output=True, text=True, env=env, timeout=30, check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("did not settle", result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

@@ -1056,7 +1056,7 @@ def cmd_doctor(args) -> int:
             pi_version = (result.stdout or result.stderr).strip().splitlines()[0]
             match = re.search(r"(\d+)\.(\d+)\.(\d+)", pi_version)
             parsed = tuple(int(part) for part in match.groups()) if match else ()
-            pi_ok = (0, 80, 5) <= parsed <= (0, 80, 10)
+            pi_ok = parsed >= (0, 80, 10)
         except (OSError, subprocess.SubprocessError, IndexError):
             pass
     check("pi", pi_ok, f"{pi_bin or 'not on PATH'} · {pi_version}")
@@ -1065,15 +1065,46 @@ def cmd_doctor(args) -> int:
     settings = Path.home() / ".pi" / "agent" / "settings.json"
     try:
         package_settings = json.loads(settings.read_text(encoding="utf-8")) or {}
+        sources = [value.get("source") if isinstance(value, dict) else value
+                   for value in package_settings.get("packages") or []]
         registered = {
             (settings.parent / value).expanduser().resolve()
-            for value in package_settings.get("packages") or []
+            for value in sources
             if isinstance(value, str) and not value.startswith(("npm:", "git:", "http:", "https:", "ssh:"))
         }
         pi_package_ok = product_root in registered
     except (OSError, ValueError, TypeError):
         pass
     check("pi-package", pi_package_ok, str(product_root))
+
+    pi_skill_ok = False
+    pi_skill_detail = "skill:pi-workflows unavailable"
+    if pi_bin and pi_ok:
+        try:
+            result = subprocess.run(
+                [pi_bin, "--mode", "rpc", "--no-session"],
+                input='{"type":"get_commands","id":"pi-workflows-doctor"}\n',
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+                env={**os.environ, "PI_OFFLINE": "1"},
+            )
+            for line in result.stdout.split("\n"):
+                try:
+                    event = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if event.get("id") != "pi-workflows-doctor" or not event.get("success"):
+                    continue
+                commands = ((event.get("data") or {}).get("commands") or [])
+                pi_skill_ok = any(command.get("name") == "skill:pi-workflows" for command in commands)
+                if pi_skill_ok:
+                    pi_skill_detail = "skill:pi-workflows loaded"
+                break
+        except (OSError, subprocess.SubprocessError, TypeError):
+            pass
+    check("pi-skill", pi_skill_ok, pi_skill_detail)
 
     loops_ok = daemon_up()
     check("loops", loops_ok, f"{DAEMON} · {'connected' if loops_ok else 'optional integration unavailable'}", required=False)

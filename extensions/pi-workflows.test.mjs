@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import piWorkflows, { argumentsFor } from "./pi-workflows.ts";
@@ -33,4 +34,19 @@ test("Pi package registers a bounded native tool and throws on CLI failure", asy
     tool.execute("id", { action: "validate", workflow: "broken" }, undefined, undefined, { cwd: "/tmp" }),
     /invalid graph/,
   );
+});
+
+
+test("native tool truncates large output and preserves the complete result", async () => {
+  let tool;
+  const output = "workflow row\n".repeat(600);
+  const pi = {
+    registerTool(value) { tool = value; },
+    async exec() { return { stdout: output, stderr: "", code: 0, killed: false }; },
+  };
+  piWorkflows(pi);
+  const result = await tool.execute("id", { action: "list" }, undefined, undefined, { cwd: "/tmp" });
+  assert.equal(result.details.truncated, true);
+  assert.match(result.content[0].text, /Output truncated/);
+  assert.equal(await readFile(result.details.fullOutputPath, "utf8"), output.trim());
 });

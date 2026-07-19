@@ -77,6 +77,7 @@ import yaml
 
 PI_BASE = [
     "pi", "-p", "--mode", "json", "--no-session",
+    "--no-approve", "--offline",
     "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
 ]
 SCORE_RE = re.compile(r'"score"\s*:\s*([0-9.]+)')
@@ -117,39 +118,69 @@ def emit(kind: str, **fields) -> None:
         pass  # telemetry must never take down a run
 
 
-def parse_pi_events(stdout: str) -> tuple[str, dict, bool, str]:
-    """JSONL event stream -> (last assistant text, usage totals, final_ok, final stopReason).
+def parse_pi_events(stdout: str) -> tuple[str, dict, bool, str, str | None]:
+    """Validate Pi JSONL and return text, usage, protocol status, detail, model.
 
     Records are split on "\\n" ONLY, per the pi JSONL contract
-    (https://pi.dev/docs/latest/rpc). str.splitlines() also breaks on U+2028,
-    U+2029, U+0085, \\x0b, \\x0c and \\x1c-\\x1e, so a single one of those inside
-    model output would fragment a message_end record into unparseable pieces.
-    Those pieces are skipped as bad JSON, leaving `stops` empty, which reports
-    stopReason "missing" and fails a step that actually succeeded.
+    (https://pi.dev/docs/latest/json). str.splitlines() also breaks on valid
+    Unicode separators inside model output. Every non-empty line must be a Pi
+    event, and completion requires agent_settled after the final assistant
+    message so an automatic retry, compaction retry, or continuation cannot be
+    mistaken for a finished node.
     """
-    text, stops = "", []
+    text = ""
     usage = {"input": 0, "output": 0, "total": 0, "cost": 0.0}
-    for line in stdout.split("\n"):
+    events: list[dict] = []
+    assistant_indices: list[int] = []
+    assistants: list[dict] = []
+    for line_number, line in enumerate(stdout.split("\n"), start=1):
+        if not line.strip():
+            continue
         try:
             event = json.loads(line)
-        except (json.JSONDecodeError, ValueError):
-            continue
+        except (json.JSONDecodeError, ValueError) as error:
+            return text, usage, False, f"malformed Pi JSON event at line {line_number}: {error}", None
+        if not isinstance(event, dict) or not isinstance(event.get("type"), str):
+            return text, usage, False, f"invalid Pi JSON event at line {line_number}", None
+        events.append(event)
         if event.get("type") != "message_end":
             continue
         msg = event.get("message") or {}
-        if msg.get("role") != "assistant":
+        if not isinstance(msg, dict) or msg.get("role") != "assistant":
             continue
-        stops.append(msg.get("stopReason"))
+        assistant_indices.append(len(events) - 1)
+        assistants.append(msg)
         u = msg.get("usage") or {}
         usage["input"] += u.get("input", 0)
         usage["output"] += u.get("output", 0)
         usage["total"] += u.get("totalTokens", 0)
         usage["cost"] += float(((u.get("cost") or {}).get("total")) or 0)
-        blocks = [b.get("text", "") for b in (msg.get("content") or []) if b.get("type") == "text"]
+        blocks = [
+            block.get("text", "") for block in (msg.get("content") or [])
+            if isinstance(block, dict) and block.get("type") == "text"
+        ]
         if blocks:
             text = "\n".join(blocks)
-    final_stop = stops[-1] if stops else "missing"
-    return text, usage, final_stop == "stop", str(final_stop)
+    if not assistants:
+        return text, usage, False, "Pi JSON stream contained no assistant message_end", None
+    if any(event.get("type") == "extension_error" for event in events):
+        return text, usage, False, "Pi JSON stream contained extension_error", None
+    failed_retries = [
+        event for event in events
+        if event.get("type") == "auto_retry_end" and event.get("success") is False
+    ]
+    if failed_retries:
+        return text, usage, False, "Pi automatic retry exhausted", None
+    settled = [index for index, event in enumerate(events) if event.get("type") == "agent_settled"]
+    if not settled or settled[-1] < assistant_indices[-1]:
+        return text, usage, False, "Pi JSON stream did not settle after the final assistant message", None
+    final = assistants[-1]
+    stop = final.get("stopReason")
+    if stop != "stop" or final.get("errorMessage"):
+        return text, usage, False, f"Pi final stopReason was {stop!r}", None
+    provider, model = final.get("provider"), final.get("model")
+    actual_model = f"{provider}/{model}" if provider and model else None
+    return text, usage, True, "", actual_model
 
 
 def call_pi(cfg: dict, spec: dict, prompt: str, cwd: Path) -> tuple[str, dict, bool, str, int]:
@@ -186,11 +217,13 @@ def call_pi(cfg: dict, spec: dict, prompt: str, cwd: Path) -> tuple[str, dict, b
             f"pi call exceeded {limit}s (no response). Raise `timeout:` on this "
             f"step if the work legitimately takes longer."
         ), 124
-    text, usage, stop_ok, stop = parse_pi_events(proc.stdout)
+    text, usage, protocol_ok, protocol_detail, actual_model = parse_pi_events(proc.stdout)
     if proc.returncode != 0:
         return text, usage, False, f"pi exit {proc.returncode}: {proc.stderr[-1500:]}", proc.returncode
-    if not stop_ok:
-        return text, usage, False, f"bad stopReason '{stop}' (truncated/aborted response)", 0
+    if not protocol_ok:
+        return text, usage, False, protocol_detail, 0
+    if "/" in model and actual_model != model:
+        return text, usage, False, f"Pi model pin drifted: expected {model}, received {actual_model or 'missing'}", 0
     if not text.strip():
         return text, usage, False, "empty output", 0
     return text, usage, True, "", 0
@@ -413,7 +446,9 @@ class Runner:
                     log(self.run_dir, f"{sid} attempt {attempt}/{attempts}: judge score {score} "
                                       f"(target {threshold})")
             dur = time.monotonic() - t0
-            log(self.run_dir, f"{sid} attempt {attempt}/{attempts}: {'PASS' if ok else 'FAIL'} ({dur:.0f}s)")
+            outcome = "PASS" if ok else "FAIL"
+            reason = "" if ok or not failure else f" — {' '.join(failure.split())[:500]}"
+            log(self.run_dir, f"{sid} attempt {attempt}/{attempts}: {outcome} ({dur:.0f}s){reason}")
             if ok:
                 passed = True
                 break

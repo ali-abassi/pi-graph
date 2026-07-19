@@ -7,6 +7,17 @@ extension registers `pi_workflows`; it never overrides a built-in tool. It uses
 Pi's `exec` API, forwards cancellation, throws on non-zero CLI exit, and returns
 bounded text plus structured command details.
 
+This follows Pi's documented package contract: resources are declared under the
+`pi` manifest, Pi-owned imports are `peerDependencies` with `"*"`, and custom
+tool output is truncated with Pi's own helpers. Pi packages execute with the
+user's permissions, so the workflow tool allowlist is capability routing rather
+than an operating-system sandbox.
+
+Run `./install.sh` to install the complete product and register its local Pi
+package. A direct `pi install` can discover the TypeScript adapter, but it does
+not provision the Python virtual environment and is therefore not the supported
+standalone installation path.
+
 ## Agent X
 
 Agent X exposes its own compact `workflows` tool because it has custom terminal
@@ -34,7 +45,20 @@ direct run when Loops is absent or resolves a different workflow path.
 
 ## Compatibility
 
-- Reviewed Pi range: `0.80.5` through `0.80.10`.
-- Tested Pi version: `0.80.10`.
+- Minimum and tested Pi version: `0.80.10`. Newer versions are accepted because
+  the JSON parser fails closed if the event contract becomes incompatible.
+- Model calls use Pi JSON mode with sessions, project trust, ambient resources,
+  and startup refresh disabled. Every non-empty JSONL line must parse, the
+  requested provider/model must match, and `agent_settled` must follow the final
+  successful assistant message.
 - Python: 3.11 or newer, with PyYAML 6.x and ruamel.yaml 0.18.x.
 - Workflow YAML is the cross-agent API. CLI JSON is the automation API.
+
+## Primary Pi sources
+
+- [Pi packages](https://pi.dev/docs/latest/packages)
+- [Skills](https://pi.dev/docs/latest/skills)
+- [Extensions](https://pi.dev/docs/latest/extensions)
+- [JSON event stream](https://pi.dev/docs/latest/json)
+- [Settings and resource overrides](https://pi.dev/docs/latest/settings)
+- [Security and trust boundaries](https://pi.dev/docs/latest/security)

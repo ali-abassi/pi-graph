@@ -20,7 +20,10 @@ probabilistic.
    failure contract for agents and editors, exposed by `piw schema --json`.
 3. `piw` — stable human and machine-readable CLI. Every inspection command has
    `--json`; failures use non-zero exit codes and actionable errors.
-4. Pi package — a native Pi tool and skill, installable from a local path or Git.
+4. Pi package — a native Pi tool and skill registered from the product install.
+   The product installer remains the distribution path because it also creates
+   the required isolated Python runtime; `pi install` alone is not a complete
+   Pi Workflows installation.
 5. Codex and Claude Code skills — one shared `SKILL.md`, discovered from their
    documented user skill locations.
 6. Loops adapter — beautiful graph/configuration display, live events, run

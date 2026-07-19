@@ -1,9 +1,10 @@
 # Pi Capability Map for Deterministic Workflows
 
 Reviewed against Pi `0.80.7` on 2026-07-15, re-verified against Pi `0.80.10` on
-2026-07-18. The factory supports Pi `0.80.5` through `0.80.10` for its current
-JSON transport. Older and unreviewed newer versions fail closed. Re-run
-compatibility fixtures before changing that range.
+2026-07-19. The supported product baseline is Pi `0.80.10`; the JSON transport
+accepts newer versions but rejects malformed, incomplete, unsettled, or
+model-drifted event streams. Re-run compatibility fixtures when Pi changes its
+event contract.
 
 The 2026-07-18 re-verification ran a real `--mode json` stage (session header
 → `agent_start` → `turn_start` → message lifecycle → `turn_end` → `agent_end`
@@ -81,11 +82,13 @@ old session first, so a failed replacement must enter a terminal recovery state.
 
 ## Bounded-stage runtime profile
 
-The generic runner disables ambient project trust, extension discovery, skill
-discovery, context files, prompt templates, themes, sessions, and startup
-network operations. It explicitly loads only the factory skill and guard, pins
-provider/model/thinking, and records the effective Pi version in the
-implementation digest.
+The lean runner disables project trust, extension discovery, skill discovery,
+context files for isolated nodes, prompt templates, themes, sessions, and
+startup network operations. It retains the selected user Pi directory for
+authentication and model configuration, then verifies the requested
+provider/model in the final event. The production factory additionally creates
+a sanitized agent directory, explicitly loads only its skill and guards, and
+records the effective Pi version in the implementation digest.
 
 Do not depend on user or project `.pi/settings.json`, `SYSTEM.md`, discovered
 skills, or global package state for correctness. If a resource is required,
@@ -125,5 +128,4 @@ choose its own path and a bounded stop condition plus outcome verifier exists.
 - [Settings](https://pi.dev/docs/latest/settings)
 - [Packages](https://pi.dev/docs/latest/packages)
 - [Security](https://pi.dev/docs/latest/security)
-- [Pinned Pi 0.80.7 print-mode behavior](https://github.com/badlogic/pi-mono/blob/v0.80.7/packages/coding-agent/src/modes/print-mode.ts)
-- [Pinned Pi 0.80.7 structured-output example](https://github.com/badlogic/pi-mono/blob/v0.80.7/packages/coding-agent/examples/extensions/structured-output.ts)
+- [Pinned Pi 0.80.10 coding-agent source](https://github.com/earendil-works/pi/tree/v0.80.10/packages/coding-agent)

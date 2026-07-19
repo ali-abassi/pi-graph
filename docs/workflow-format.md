@@ -50,6 +50,12 @@ Each step has exactly one of `cmd` or `prompt`. Use the weakest kind that can
 finish the work. A `gate` verifies the artifact or effect mechanically; a model
 never decides whether its own gate passed.
 
+`tools:` is a Pi tool-selection boundary, not an operating-system sandbox.
+In particular, allowing `bash` allows arbitrary commands with the current
+user's permissions, and `agent: true` enables Pi's full default tool loop. Run
+untrusted or unattended workflows inside an OS/container sandbox with only the
+required files, credentials, and network access.
+
 ## Inputs available inside nodes
 
 Prompt nodes can use:

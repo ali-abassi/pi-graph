@@ -1,11 +1,37 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { StringEnum } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+  formatSize,
+  truncateHead,
+  withFileMutationQueue,
+  type ExtensionAPI,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 const ACTIONS = ["doctor", "schema", "list", "create", "graph", "path", "validate", "run", "runs", "detail", "show", "stats", "schedule", "automations", "automation"] as const;
 const PIW = fileURLToPath(new URL("../bin/piw", import.meta.url));
+const TOOL_MAX_LINES = 500;
+const TOOL_MAX_BYTES = 24 * 1024;
+
+async function boundedOutput(output: string) {
+  const truncation = truncateHead(output, { maxLines: TOOL_MAX_LINES, maxBytes: TOOL_MAX_BYTES });
+  if (!truncation.truncated) return { text: truncation.content, truncation };
+
+  const directory = await mkdtemp(join(tmpdir(), "pi-workflows-output-"));
+  const fullOutputPath = join(directory, "output.txt");
+  await withFileMutationQueue(fullOutputPath, () => writeFile(fullOutputPath, output, "utf8"));
+  const omittedLines = truncation.totalLines - truncation.outputLines;
+  const omittedBytes = truncation.totalBytes - truncation.outputBytes;
+  return {
+    text: `${truncation.content}\n\n[Output truncated: showing ${truncation.outputLines} of ${truncation.totalLines} lines (${formatSize(truncation.outputBytes)} of ${formatSize(truncation.totalBytes)}); ${omittedLines} lines (${formatSize(omittedBytes)}) omitted. Full output: ${fullOutputPath}]`,
+    truncation,
+    fullOutputPath,
+  };
+}
 
 export function argumentsFor(params: Record<string, unknown>): string[] {
   const action = String(params.action ?? "list");
@@ -67,12 +93,12 @@ export default function piWorkflows(pi: ExtensionAPI) {
   pi.registerTool({
     name: "pi_workflows",
     label: "Pi Workflows",
-    description: "Create, validate, run, and inspect deterministic Pi workflow graphs. Use workflows for repeatable multi-step work whose ordering, gates, routes, evidence, or schedule must be mechanical rather than remembered by a model.",
+    description: `Create, validate, run, and inspect deterministic Pi workflow graphs. Use workflows for repeatable multi-step work whose ordering, gates, routes, evidence, or schedule must be mechanical rather than remembered by a model. Output is limited to ${TOOL_MAX_LINES} lines or ${formatSize(TOOL_MAX_BYTES)}; complete truncated output is saved to a temporary file.`,
     promptSnippet: "Operate deterministic workflow DAGs with explicit gates and evidence",
     promptGuidelines: [
       "Use pi_workflows validate before pi_workflows run; validation is free and failed validation must block paid execution.",
       "Use pi_workflows detail, show, and stats to verify artifacts, gates, cost, and cache behavior instead of inferring success from a process exit alone.",
-      "Create an automation only after validation and one successful manual smoke; schedule validates again and fails closed.",
+      "Use pi_workflows schedule only after validation and one successful manual smoke; scheduling validates again and fails closed.",
       "Use pi_workflows only when a repeatable graph earns its complexity; use ordinary tools for a one-step task.",
     ],
     parameters: Type.Object({
@@ -107,9 +133,17 @@ export default function piWorkflows(pi: ExtensionAPI) {
       const result = await pi.exec(PIW, args, { cwd: ctx.cwd, signal, timeout: 3_600_000 });
       const output = `${result.stdout || ""}${result.stderr ? `\n${result.stderr}` : ""}`.trim();
       if (result.code !== 0) throw new Error(output || `piw exited ${result.code}`);
+      const bounded = await boundedOutput(output || "ok");
       return {
-        content: [{ type: "text", text: output || "ok" }],
-        details: { command: PIW, args, code: result.code },
+        content: [{ type: "text", text: bounded.text }],
+        details: {
+          command: PIW,
+          args,
+          code: result.code,
+          truncated: bounded.truncation.truncated,
+          truncation: bounded.truncation,
+          fullOutputPath: bounded.fullOutputPath,
+        },
       };
     },
   });
