@@ -151,6 +151,43 @@ class ProductCliTests(unittest.TestCase):
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["passed"], 1)
 
+    def test_final_qa_usage_is_in_the_machine_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_pi = fake_bin / "pi"
+            fake_pi.write_text(
+                "#!/bin/sh\n"
+                "printf '%s\\n' '{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\","
+                "\"stopReason\":\"stop\",\"content\":[{\"type\":\"text\","
+                "\"text\":\"{\\\"verdict\\\":\\\"pass\\\",\\\"issues\\\":[]}\"}],"
+                "\"usage\":{\"input\":5,\"output\":2,\"totalTokens\":7,"
+                "\"cost\":{\"total\":0.001}}}}'\n",
+                encoding="utf-8",
+            )
+            fake_pi.chmod(0o755)
+            steps = root / "steps.yaml"
+            steps.write_text(yaml.safe_dump({
+                "version": 1,
+                "workflow": "qa-ledger",
+                "model": "test/luna",
+                "steps": [{"id": "artifact", "cmd": "printf artifact"}],
+                "qa": {"model": "test/luna", "prompt": "Review: {artifacts}"},
+            }, sort_keys=False), encoding="utf-8")
+            env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"}
+            result = subprocess.run(
+                [sys.executable, str(RUNNER), str(steps)],
+                capture_output=True, text=True, env=env, timeout=30, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            ledger_path = next((root / "runs").glob("*/ledger.json"))
+            ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+            qa = next(entry for entry in ledger if entry["id"] == "__qa__")
+            self.assertEqual(qa["total"], 7)
+            self.assertEqual(qa["cost"], 0.001)
+            self.assertTrue(qa["passed"])
+
 
 if __name__ == "__main__":
     unittest.main()

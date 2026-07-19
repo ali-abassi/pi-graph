@@ -66,6 +66,23 @@ See [`docs/workflow-format.md`](docs/workflow-format.md) for dependencies,
 typed output, deterministic branching, gates, judges, QA, and every available
 runtime input.
 
+## Examples
+
+The [`examples/`](examples/) catalog contains 12 runnable workflows ordered from
+starter to complex. Together they cover sequential and parallel execution,
+retries, typed output, deterministic branches, least-privilege tools, full
+agents, judge loops, QA, caching, logs, ledgers, and optimization hotspots.
+
+```bash
+python3 scripts/run_example_suite.py --validate-only  # free contract check
+python3 scripts/run_example_suite.py                  # live Luna-medium suite
+```
+
+The live suite keeps evidence under the gitignored `examples/.artifacts/`
+directory and produces a report linking every run log and ledger. The accepted
+measurements are in
+[`docs/example-certification.md`](docs/example-certification.md).
+
 ## Nodes and inputs
 
 The format has five legible node kinds:
@@ -140,8 +157,9 @@ python3 -m venv .venv
 npm ci --ignore-scripts
 npm test
 npm run check
-PI_WORKFLOWS_ROOTS="$PWD/examples" ./bin/piw validate examples/hello/steps.yaml
-PI_WORKFLOWS_ROOTS="$PWD/examples" ./bin/piw run examples/hello/steps.yaml --input Ada
+npm run test:examples
+PI_WORKFLOWS_ROOTS="$PWD/examples/workflows" ./bin/piw validate examples/workflows/01-hello-command/steps.yaml
+PI_WORKFLOWS_ROOTS="$PWD/examples/workflows" ./bin/piw run examples/workflows/01-hello-command/steps.yaml --input Ada
 ```
 
 The normal graph runner is intentionally small. The production workflow
@@ -151,3 +169,6 @@ advanced opt-in layers documented under [`references/`](references/).
 ## License
 
 [MIT](LICENSE)
+
+Contributions are welcome; see [`CONTRIBUTING.md`](CONTRIBUTING.md) and the
+[`CHANGELOG.md`](CHANGELOG.md).

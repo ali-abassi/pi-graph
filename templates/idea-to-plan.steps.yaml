@@ -22,7 +22,7 @@
 # keep-or-revert with a changelog.
 #
 # Usage: copy next to an idea.md, then:
-#   python3 ~/.pi/agent/skills/agentx/deterministic-workflow/scripts/run_steps.py idea-to-plan.steps.yaml
+#   piw run idea-to-plan.steps.yaml --input-file idea.md
 # Output: ./spec.md   (halts early with reasoning if the idea is NO-GO)
 version: 1
 workflow: idea-to-plan

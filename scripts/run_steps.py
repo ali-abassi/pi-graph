@@ -259,7 +259,8 @@ def run_judge(judge: dict, spec: dict, candidate: str, run_dir: Path, sid: str,
     return score, text or detail
 
 
-def run_qa(spec: dict, ids: list[str], run_dir: Path, cwd: Path) -> bool:
+def run_qa(spec: dict, ids: list[str], run_dir: Path, cwd: Path) -> tuple[bool, dict, float]:
+    started = time.monotonic()
     qa = spec["qa"]
     parts = []
     for sid in ids:
@@ -273,10 +274,10 @@ def run_qa(spec: dict, ids: list[str], run_dir: Path, cwd: Path) -> bool:
     match = VERDICT_RE.search(text) if ok else None
     if not match:
         log(run_dir, f'QA: FAIL — {detail or "judge output unparseable"}')
-        return False
+        return False, usage, round(time.monotonic() - started, 1)
     verdict = match.group(1)
     log(run_dir, f"QA: verdict {verdict} · {usage['total']} tok ${usage['cost']:.4f} · report in {run_dir / 'qa.md'}")
-    return verdict == "pass"
+    return verdict == "pass", usage, round(time.monotonic() - started, 1)
 
 
 def verify_run(spec: dict, steps: list[dict], run_dir: Path, cwd: Path) -> int:
@@ -307,7 +308,8 @@ def verify_run(spec: dict, steps: list[dict], run_dir: Path, cwd: Path) -> int:
     if failures:
         return 1
     if spec.get("qa"):
-        return 0 if run_qa(spec, [s["id"] for s in steps], run_dir, cwd) else 1
+        qa_ok, _, _ = run_qa(spec, [s["id"] for s in steps], run_dir, cwd)
+        return 0 if qa_ok else 1
     return 0
 
 
@@ -932,8 +934,8 @@ def main() -> int:
                     cascade_skip(sid, f"depends on failed '{sid}'")
             dispatch_ready()
 
-    write_ledger(runner, run_dir)
     if failed:
+        write_ledger(runner, run_dir)
         log(run_dir, f"HALT · failed: {sorted(failed)} · skipped: {sorted(skipped)} · artifacts in {run_dir}")
         emit("run_end", ok=False, failed=sorted(failed), skipped=sorted(skipped))
         print(f"\nFAILED step(s) {sorted(failed)}. Fix and rerun with:\n"
@@ -948,11 +950,20 @@ def main() -> int:
         summary += f", {len(skipped)} skipped"
     log(run_dir, f"run complete · {summary}")
     if spec.get("qa"):
-        emit("step_start", id="__qa__", model=(spec.get("qa") or {}).get("model"), max_attempts=1)
-        qa_ok = run_qa(spec, ids, run_dir, cwd)
+        qa = spec.get("qa") or {}
+        qa_model = qa.get("model") or spec.get("model")
+        emit("step_start", id="__qa__", model=qa_model, max_attempts=1)
+        qa_ok, qa_usage, qa_seconds = run_qa(spec, ids, run_dir, cwd)
+        runner.record({
+            "id": "__qa__", "model": qa_model, "cached": False, "attempts": 1,
+            "passed": qa_ok, "seconds": qa_seconds, **qa_usage,
+        })
         git_commit(run_dir, f"QA: {'pass' if qa_ok else 'fail'}")
-        emit("step_end", id="__qa__", passed=qa_ok)
+        emit("step_end", id="__qa__", passed=qa_ok, seconds=qa_seconds, attempts=1,
+             cost=qa_usage["cost"], total=qa_usage["total"],
+             input=qa_usage["input"], output=qa_usage["output"])
         emit("qa", passed=qa_ok)
+        write_ledger(runner, run_dir)
         if not qa_ok:
             emit("run_end", ok=False, failed=["__qa__"], skipped=[])
             print(f"\nQA FAILED. Report: {run_dir / 'qa.md'}\n"
@@ -960,6 +971,8 @@ def main() -> int:
                   f"  python3 {shlex.quote(sys.argv[0])} {shlex.quote(str(args.steps_file))} "
                   f"--verify --run-dir {shlex.quote(str(run_dir))}", file=sys.stderr)
             return 1
+    else:
+        write_ledger(runner, run_dir)
     emit("run_end", ok=True, failed=[], skipped=sorted(skipped))
     return 0
 

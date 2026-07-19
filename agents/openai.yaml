@@ -1,4 +1,4 @@
 interface:
-  display_name: "Deterministic Pi + Codex Harnesses"
-  short_description: "Build, research, verify, and run deterministic Pi workflows"
-  default_prompt: "Use $deterministic-workflow to build and verify a bounded Pi workflow for this task, including typed evidence, mechanical gates, parallel stages, and trustworthy reporting."
+  display_name: "Pi Workflows"
+  short_description: "Build and run deterministic Pi workflow graphs"
+  default_prompt: "Use $pi-workflows to build and verify a bounded workflow for this task with explicit inputs, typed outputs, mechanical gates, and inspectable run evidence."

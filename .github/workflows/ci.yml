@@ -32,6 +32,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm test
       - run: npm run check
+      - run: npm run test:examples
       - run: ./bin/piw schema --json | jq -e '."x-pi-workflows".nodeKinds | length == 5'
-      - run: PI_WORKFLOWS_ROOTS="$PWD/examples" ./bin/piw validate examples/hello/steps.yaml
-      - run: PI_WORKFLOWS_ROOTS="$PWD/examples" ./bin/piw run examples/hello/steps.yaml --input Ada
+      - run: PI_WORKFLOWS_ROOTS="$PWD/examples/workflows" ./bin/piw validate examples/workflows/01-hello-command/steps.yaml
+      - run: PI_WORKFLOWS_ROOTS="$PWD/examples/workflows" ./bin/piw run examples/workflows/01-hello-command/steps.yaml --input Ada

@@ -1,7 +1,8 @@
 {
   "name": "pi-workflows",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Deterministic DAG workflows for Pi, Agent X, Codex, and Claude Code",
+  "author": "Ali Abassi",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -41,6 +42,7 @@
   },
   "scripts": {
     "check": "tsc --noEmit",
+    "test:examples": ".venv/bin/python scripts/run_example_suite.py --validate-only",
     "test:extension": "node --experimental-strip-types --test extensions/pi-workflows.test.mjs",
     "test": ".venv/bin/python -m unittest discover -s tests -v && npm run test:extension"
   }

@@ -1,5 +1,6 @@
 version: 1
-workflow: hello-pi-workflows
+workflow: hello-command
+workers: 1
 input:
   required: true
   description: A name to greet

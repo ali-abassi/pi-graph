@@ -165,7 +165,7 @@ Primary references:
 ## Install and run
 
 ```bash
-python3 ~/.pi/agent/skills/agentx/deterministic-workflow/scripts/scaffold_product_planning_workflow.py \
+python3 scripts/scaffold_product_planning_workflow.py \
   --repo /path/to/product-repo \
   --workflow product-planning \
   --version 2.1.1

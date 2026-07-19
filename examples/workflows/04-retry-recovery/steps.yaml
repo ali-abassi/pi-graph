@@ -1,0 +1,22 @@
+version: 1
+workflow: retry-recovery
+workers: 1
+input:
+  required: true
+  description: Text preserved after a transient failure
+steps:
+  - id: flaky_once
+    needs: []
+    retries: 1
+    cmd: |
+      if [ ! -f "$RUN/first-attempt.recorded" ]; then
+        touch "$RUN/first-attempt.recorded"
+        echo "intentional transient failure" >&2
+        exit 75
+      fi
+      printf 'recovered: %s\n' "$(cat "$INPUT")"
+    gate: grep -q '^recovered:' "$OUT"
+  - id: verify_attempts
+    needs: [flaky_once]
+    cmd: test -f "$RUN/first-attempt.recorded" && cat "$RUN/flaky_once.md"
+    gate: grep -q '^recovered:' "$OUT"

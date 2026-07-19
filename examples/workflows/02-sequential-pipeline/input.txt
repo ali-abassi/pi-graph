@@ -1,0 +1,3 @@
+Publish the documentation
+Run the release checks
+Announce the release

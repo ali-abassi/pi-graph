@@ -1,0 +1,24 @@
+version: 1
+workflow: agent-effect
+model: openai-codex/gpt-5.6-luna
+thinking: medium
+workers: 1
+input:
+  required: true
+  description: Text the agent must persist as a verified effect
+steps:
+  - id: write_effect
+    needs: []
+    agent: true
+    prompt: |
+      Use the write tool to create {run}/agent-output.txt containing exactly the
+      plain text from the workflow input, with a trailing newline. Do not modify
+      any other file. Then reply exactly: CREATED agent-output.txt
+
+      {input}
+    gate: test -s "$RUN/agent-output.txt" && grep -q '^CREATED agent-output.txt$' "$OUT"
+    retries: 1
+  - id: verify_effect
+    needs: [write_effect]
+    cmd: cmp -s "$INPUT" "$RUN/agent-output.txt" && printf 'effect verified\n'
+    gate: grep -q '^effect verified$' "$OUT"
