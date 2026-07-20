@@ -1,0 +1,32 @@
+version: 1
+workflow: thousand-item-pipeline
+workers: 1
+
+input:
+  required: true
+  description: One record from the bulk corpus
+
+steps:
+  - id: normalize
+    cmd: tr -s '[:space:]' ' ' < "$INPUT"
+    gate: test -s "$OUT"
+
+  - id: enrich
+    needs: [normalize]
+    cmd: awk '{print "ENRICHED|" $0}' "$RUN/normalize.md"
+    gate: grep -q '^ENRICHED|' "$OUT"
+
+  - id: score
+    needs: [enrich]
+    cmd: checksum=$(cksum "$RUN/enrich.md" | awk '{print $1}'); printf 'SCORE|%s|' "$checksum"; cat "$RUN/enrich.md"
+    gate: grep -Eq '^SCORE\|[0-9]+\|ENRICHED\|' "$OUT"
+
+  - id: verify
+    needs: [score]
+    cmd: grep -Eq '^SCORE\|[0-9]+\|ENRICHED\|' "$RUN/score.md" && { printf 'VERIFIED|'; cat "$RUN/score.md"; }
+    gate: grep -q '^VERIFIED|SCORE|' "$OUT"
+
+  - id: emit
+    needs: [verify]
+    cmd: sed 's/^/READY|/' "$RUN/verify.md"
+    gate: grep -q '^READY|VERIFIED|SCORE|' "$OUT"

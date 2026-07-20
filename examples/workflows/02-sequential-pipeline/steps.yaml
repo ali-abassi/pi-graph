@@ -1,0 +1,21 @@
+version: 1
+workflow: sequential-pipeline
+workers: 1
+input:
+  required: true
+  description: One task per line
+steps:
+  - id: normalize
+    needs: []
+    cmd: sed '/^[[:space:]]*$/d; s/^[[:space:]]*/- /' "$INPUT"
+    gate: test "$(grep -c '^-' "$OUT")" -ge 2
+  - id: count
+    needs: [normalize]
+    cmd: grep -c '^-' "$RUN/normalize.md"
+    gate: grep -qE '^[0-9]+$' "$OUT"
+  - id: report
+    needs: [normalize, count]
+    cmd: |
+      printf '# Tasks\n\n%s\n\nTotal: %s\n' "$(cat "$RUN/normalize.md")" "$(cat "$RUN/count.md")"
+    gate: |
+      grep -q '^Total: [0-9]' "$OUT"

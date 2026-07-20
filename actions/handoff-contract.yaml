@@ -1,0 +1,38 @@
+version: 1
+id: handoff-contract
+title: Compile an explicit agent handoff
+description: Turn a request into a typed objective, bounded context, constraints, checks, and escalation conditions before another agent acts.
+category: coordination
+inputs: One task request or upstream artifact that another agent or workflow node must execute.
+outputs: JSON handoff contract with objective, inputs, constraints, acceptance checks, risks, and unresolved questions.
+failure: Fails closed when the contract omits an objective, an observable acceptance check, or a declared risk boundary.
+effect: none
+retry_safe: true
+idempotency: not-required
+cost: one-model-call
+steps:
+  - id: handoff
+    needs: []
+    prompt: |
+      Compile the source into an execution contract for another agent. Preserve every explicit
+      constraint, separate supplied facts from assumptions, and make completion observable.
+      Return JSON only:
+      {"objective":"one outcome","inputs":["available artifact or fact"],"constraints":["must or must-not"],"acceptance_checks":["observable check"],"risks":["failure boundary"],"questions":["only unresolved questions that materially change execution"]}
+
+      <source>
+      {{source}}
+      </source>
+    schema:
+      objective: string
+      inputs: array
+      constraints: array
+      acceptance_checks: array
+      risks: array
+      questions: array
+    gate: >-
+      python3 -c "import json; x=json.load(open('$OUT')); assert x['objective'].strip(); assert x['acceptance_checks']; assert isinstance(x['constraints'],list) and isinstance(x['risks'],list)"
+    retries: 1
+    retry_on: [model_error, gate_failed, schema_failed]
+    retry_delay_seconds: 1
+    retry_backoff: exponential
+

@@ -1,0 +1,60 @@
+version: 1
+id: failure-triage
+title: Diagnose a failed run before retrying
+description: Separate reproduction evidence from causal analysis, then classify retry safety and produce one verifiable repair.
+category: operations
+inputs: Logs, events, artifacts, and the failed node contract from one run.
+outputs: Reproduction facts, causal hypotheses, and a typed transient, permanent, or unknown remediation decision.
+failure: Fails if evidence and inference are mixed, retry safety is omitted, or the proposed repair has no verification command or observation.
+effect: none
+retry_safe: true
+idempotency: not-required
+cost: three-model-calls
+steps:
+  - id: evidence
+    needs: []
+    prompt: |
+      Extract only directly observed failure evidence from the source: node, attempt, exit or
+      failure class, last successful boundary, exact symptom, and missing evidence. Do not infer a
+      cause. Output Markdown bullets and prefix every bullet with OBSERVED or MISSING.
+
+      <failure_packet>
+      {{source}}
+      </failure_packet>
+    gate: grep -Eq '^- (OBSERVED|MISSING):' "$OUT"
+    retries: 1
+    retry_on: [model_error, gate_failed]
+  - id: hypotheses
+    needs: []
+    prompt: |
+      Generate at most three competing root-cause hypotheses from the source. For each, name the
+      evidence that would confirm it and evidence that would falsify it. Do not claim certainty.
+      Output exactly three numbered items.
+
+      <failure_packet>
+      {{source}}
+      </failure_packet>
+    gate: test "$(grep -cE '^[1-3]\.' "$OUT")" -eq 3
+    retries: 1
+    retry_on: [model_error, gate_failed]
+  - id: remedy
+    needs: [evidence, hypotheses]
+    prompt: |
+      Choose the smallest evidence-backed response. Return JSON only:
+      {"failure_class":"transient|permanent|unknown","retry_safe":false,"root_cause":"supported or unknown","repair":"one bounded change","verify":"command or observable check","escalate_when":"condition"}
+      Mark retry_safe true only when repeating cannot duplicate or corrupt an external effect.
+
+      <evidence>{step.evidence}</evidence>
+      <hypotheses>{step.hypotheses}</hypotheses>
+    schema:
+      failure_class: {type: string, enum: [transient, permanent, unknown]}
+      retry_safe: boolean
+      root_cause: string
+      repair: string
+      verify: string
+      escalate_when: string
+    gate: >-
+      python3 -c "import json; x=json.load(open('$OUT')); assert x['verify'].strip() and x['repair'].strip(); assert x['failure_class'] in {'transient','permanent','unknown'}"
+    retries: 1
+    retry_on: [model_error, gate_failed, schema_failed]
+

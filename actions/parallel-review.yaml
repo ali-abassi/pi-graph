@@ -1,0 +1,61 @@
+version: 1
+id: parallel-review
+title: Parallel independent review
+description: Review one artifact for correctness and failure modes in parallel, then synthesize a typed verdict.
+category: verify
+inputs: Candidate artifact from immutable input or --needs.
+outputs: Two three-point reviews and a JSON pass or revise verdict.
+failure: Any missing review, malformed synthesis, or exhausted model failure halts the action.
+effect: none
+retry_safe: true
+idempotency: not-required
+cost: three-model-calls
+steps:
+  - id: correctness
+    needs: []
+    prompt: |
+      Review the source only for correctness, requirements coverage, and unsupported claims.
+      Output exactly three Markdown bullets. Each bullet must cite a specific source detail.
+
+      <source>
+      {{source}}
+      </source>
+    gate: test "$(grep -c '^- ' "$OUT")" -eq 3
+    retries: 1
+    retry_on: [model_error, gate_failed]
+    retry_delay_seconds: 1
+    retry_backoff: exponential
+  - id: failure-modes
+    needs: []
+    prompt: |
+      Adversarially review the source for edge cases, unsafe effects, recovery gaps, and ways a
+      confident-looking result could still be wrong. Output exactly three Markdown bullets.
+
+      <source>
+      {{source}}
+      </source>
+    gate: test "$(grep -c '^- ' "$OUT")" -eq 3
+    retries: 1
+    retry_on: [model_error, gate_failed]
+    retry_delay_seconds: 1
+    retry_backoff: exponential
+  - id: verdict
+    needs: [correctness, failure-modes]
+    prompt: |
+      Synthesize the two independent reviews. Return JSON only:
+      {"verdict":"pass|revise","issues":["specific defect"],"recommendation":"next action"}
+      Pass only when neither review identifies a material defect.
+
+      <correctness>
+      {step.correctness}
+      </correctness>
+      <failure_modes>
+      {step.failure-modes}
+      </failure_modes>
+    schema:
+      verdict: {type: string, enum: [pass, revise]}
+      issues: array
+      recommendation: string
+    gate: python3 -c "import json; x=json.load(open('$OUT')); assert x['verdict'] in {'pass','revise'}"
+    retries: 1
+    retry_on: [model_error, gate_failed, schema_failed]

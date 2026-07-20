@@ -1,0 +1,1 @@
+The migration finished on Tuesday. All 42 records passed validation. The old read-only endpoint remains available until Friday.

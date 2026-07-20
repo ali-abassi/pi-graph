@@ -1,0 +1,5 @@
+# Runtime dependencies for the piw CLI and workflow runner.
+# Kept in sync with pyproject.toml and install.sh.
+PyYAML>=6,<7
+ruamel.yaml>=0.18,<0.19
+jsonschema>=4.23,<5

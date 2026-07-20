@@ -1,0 +1,1 @@
+Proposal: Import 1,000 customer records, normalize each record, reject malformed rows, and publish only after every item has a receipt. The process must be resumable and must not silently drop failures.

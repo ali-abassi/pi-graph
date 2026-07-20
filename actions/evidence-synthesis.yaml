@@ -1,0 +1,55 @@
+version: 1
+id: evidence-synthesis
+title: Evidence synthesis with a skeptic lane
+description: Extract supported claims and counterevidence in parallel, then produce a typed decision memo.
+category: research
+inputs: A source packet or prior research artifacts from immutable input or --needs.
+outputs: Claim map, skeptical review, and JSON recommendation with uncertainties.
+failure: Fails if either evidence lane or the typed synthesis cannot be verified.
+effect: none
+retry_safe: true
+idempotency: not-required
+cost: three-model-calls
+steps:
+  - id: claims
+    needs: []
+    prompt: |
+      Extract the material claims from the source. For each, state the smallest supporting evidence
+      and label it fact, inference, or unknown. Output Markdown bullets only; invent nothing.
+
+      <source_packet>
+      {{source}}
+      </source_packet>
+    gate: grep -q '^- ' "$OUT"
+    retries: 1
+    retry_on: [model_error, gate_failed]
+  - id: skeptic
+    needs: []
+    prompt: |
+      Search the supplied source packet for counterevidence, missing comparisons, weak causal
+      claims, freshness risks, and conclusions that outrun their evidence. Output Markdown bullets.
+
+      <source_packet>
+      {{source}}
+      </source_packet>
+    gate: grep -q '^- ' "$OUT"
+    retries: 1
+    retry_on: [model_error, gate_failed]
+  - id: synthesis
+    needs: [claims, skeptic]
+    prompt: |
+      Produce a decision memo grounded only in the two evidence lanes. Return JSON only:
+      {"recommendation":"decision","confidence":"low|medium|high","evidence":["claim"],"counterevidence":["claim"],"uncertainties":["unknown"],"next_test":"observable test"}
+
+      <claims>{step.claims}</claims>
+      <skeptic>{step.skeptic}</skeptic>
+    schema:
+      recommendation: string
+      confidence: {type: string, enum: [low, medium, high]}
+      evidence: array
+      counterevidence: array
+      uncertainties: array
+      next_test: string
+    gate: python3 -c "import json; x=json.load(open('$OUT')); assert x['recommendation'] and x['next_test']"
+    retries: 1
+    retry_on: [model_error, gate_failed, schema_failed]

@@ -1,0 +1,55 @@
+version: 1
+id: repo-change
+title: Plan, implement, and verify a repository change
+description: Create a typed plan, let one Pi agent edit the repo, then mechanically verify the resulting diff.
+category: coding
+inputs: A scoped coding request from immutable input or --needs; run with cwd at the target repository.
+outputs: Typed plan, implementation receipt, and a clean non-empty Git diff receipt.
+failure: Fails when planning is malformed, the agent produces no diff, or git diff --check fails.
+effect: repository-write
+retry_safe: conditional
+idempotency: verify-diff-before-retry
+cost: model-plus-agent-loop
+steps:
+  - id: plan
+    needs: []
+    prompt: |
+      Plan the smallest safe repository change for the request. Return JSON only:
+      {"summary":"one sentence","files":["path"],"checks":["command or observable check"],"risks":["risk"]}
+      Do not implement anything in this node.
+
+      <request>
+      {{source}}
+      </request>
+    schema:
+      summary: string
+      files: array
+      checks: array
+      risks: array
+    gate: python3 -c "import json; x=json.load(open('$OUT')); assert x['files'] and x['checks']"
+    retries: 1
+    retry_on: [model_error, gate_failed, schema_failed]
+  - id: implement
+    needs: [plan]
+    agent: true
+    prompt: |
+      Implement the scoped request in the current repository. Preserve unrelated work, inspect the
+      real code path first, and run the narrow checks from the plan. Finish with a concise receipt
+      naming changed files and checks; do not claim success without their actual output.
+
+      <request>
+      {{source}}
+      </request>
+      <plan>
+      {step.plan}
+      </plan>
+    gate: git diff --check && test -n "$(git status --porcelain)"
+    retries: 1
+    retry_on: [model_error, gate_failed]
+    retry_delay_seconds: 2
+    retry_backoff: exponential
+    retry_max_delay_seconds: 8
+  - id: verify
+    needs: [implement]
+    cmd: git diff --check && git status --porcelain
+    gate: test -s "$OUT"

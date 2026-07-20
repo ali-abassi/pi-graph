@@ -1,0 +1,1 @@
+Five runs completed. The model step consumed 82 percent of tokens and was repeated with identical input. Mechanical gates each finished in under one second.

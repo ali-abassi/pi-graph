@@ -1,0 +1,23 @@
+version: 1
+workflow: parallel-fanout
+workers: 3
+input:
+  required: true
+  description: Text to inspect in parallel
+steps:
+  - id: words
+    needs: []
+    cmd: wc -w < "$INPUT" | tr -d ' '
+    gate: grep -qE '^[0-9]+$' "$OUT"
+  - id: characters
+    needs: []
+    cmd: wc -c < "$INPUT" | tr -d ' '
+    gate: grep -qE '^[0-9]+$' "$OUT"
+  - id: checksum
+    needs: []
+    cmd: shasum -a 256 "$INPUT" | cut -d ' ' -f 1
+    gate: grep -qE '^[0-9a-f]{64}$' "$OUT"
+  - id: merge
+    needs: [words, characters, checksum]
+    cmd: printf 'words=%s\ncharacters=%s\nsha256=%s\n' "$(cat "$RUN/words.md")" "$(cat "$RUN/characters.md")" "$(cat "$RUN/checksum.md")"
+    gate: test "$(wc -l < "$OUT" | tr -d ' ')" -eq 3

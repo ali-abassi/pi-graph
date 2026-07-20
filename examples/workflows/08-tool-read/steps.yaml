@@ -1,0 +1,22 @@
+version: 1
+workflow: tool-read
+model: openai-codex/gpt-5.6-luna
+thinking: medium
+workers: 1
+input:
+  required: true
+  description: A facts file the model must inspect with the read tool
+steps:
+  - id: inspect_with_tool
+    needs: []
+    tools: read
+    prompt: |
+      Use the read tool to read {run}/input.txt. Return exactly three Markdown
+      bullets containing only facts found in that file. Do not infer new facts.
+      Output only the bullets.
+    gate: test "$(grep -c '^- ' "$OUT")" -eq 3
+    retries: 1
+  - id: verify_source
+    needs: [inspect_with_tool]
+    cmd: grep -q 'Linux' "$RUN/inspect_with_tool.md" && grep -q 'MIT' "$RUN/inspect_with_tool.md" && cat "$RUN/inspect_with_tool.md"
+    gate: test "$(grep -c '^- ' "$OUT")" -eq 3

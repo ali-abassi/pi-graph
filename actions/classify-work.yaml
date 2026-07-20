@@ -1,0 +1,35 @@
+version: 1
+id: classify-work
+title: Classify work before routing
+description: Assign a typed execution class before deterministic branches or model routing.
+category: route
+inputs: One work request from immutable input or --needs.
+outputs: JSON category routine, reasoning, or effectful plus confidence and rationale.
+failure: Fails closed if the classifier does not emit the declared fields and enum.
+effect: none
+retry_safe: true
+idempotency: not-required
+cost: one-model-call
+steps:
+  - id: classify
+    needs: []
+    prompt: |
+      Classify the source by the weakest execution mode that can safely finish it.
+      routine means deterministic code or a simple transformation; reasoning means a model
+      judgment with no external effect; effectful means tools, filesystem, network, or user-visible
+      state may change. Return JSON only:
+      {"category":"routine|reasoning|effectful","confidence":0.0,"rationale":"one sentence"}
+
+      <source>
+      {{source}}
+      </source>
+    schema:
+      category: {type: string, enum: [routine, reasoning, effectful]}
+      confidence: number
+      rationale: string
+    gate: python3 -c "import json; x=json.load(open('$OUT')); assert x['category'] in {'routine','reasoning','effectful'}"
+    retries: 1
+    retry_on: [model_error, gate_failed, schema_failed]
+    retry_delay_seconds: 1
+    retry_backoff: exponential
+    retry_max_delay_seconds: 4

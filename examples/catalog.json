@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "liveModel": "openai-codex/gpt-5.6-luna",
+  "liveThinking": "medium",
+  "cases": [
+    {"id": "01-hello-command", "complexity": "starter", "features": ["command", "gate", "sequential"]},
+    {"id": "02-sequential-pipeline", "complexity": "starter", "features": ["command", "multi-step", "fan-in"]},
+    {"id": "03-parallel-fanout", "complexity": "intermediate", "features": ["parallel", "fan-out", "fan-in"]},
+    {"id": "04-retry-recovery", "complexity": "intermediate", "features": ["retry", "failure-evidence", "recovery"]},
+    {"id": "05-luna-summary", "complexity": "starter", "features": ["llm", "untrusted-input", "gate"]},
+    {"id": "06-structured-extraction", "complexity": "intermediate", "features": ["llm", "typed-output", "render"]},
+    {"id": "07-conditional-route", "complexity": "advanced", "features": ["llm", "schema", "conditional-route"]},
+    {"id": "08-tool-read", "complexity": "advanced", "features": ["tool-allowlist", "read", "source-verification"]},
+    {"id": "09-agent-effect", "complexity": "advanced", "features": ["agent", "write-effect", "effect-gate"]},
+    {"id": "10-judged-checklist", "complexity": "advanced", "features": ["judge", "bounded-improvement", "attempt-history"]},
+    {"id": "11-parallel-analysis-qa", "complexity": "complex", "features": ["parallel-llm", "fan-in", "independent-qa"]},
+    {"id": "12-cache-optimization", "complexity": "complex", "features": ["typed-output", "cache", "optimization-ledger"], "repeat": 2},
+    {"id": "13-thousand-item-pipeline", "complexity": "scale", "features": ["bulk", "exact-steps", "resume", "aggregate-evidence"]},
+    {"id": "14-action-template-review", "complexity": "complex", "features": ["reusable-actions", "parallel-review", "typed-verdict", "classified-retry"]},
+    {"id": "15-batch-readiness", "complexity": "scale", "features": ["reusable-actions", "batch-safety", "parallel-review", "typed-launch-decision"]}
+  ]
+}

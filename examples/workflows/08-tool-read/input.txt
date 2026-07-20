@@ -1,0 +1,3 @@
+Pi Workflows supports macOS and Linux.
+The repository uses the MIT license.
+The canonical workflow file is steps.yaml.

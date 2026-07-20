@@ -1,0 +1,51 @@
+{
+  "name": "@ali-abassi/piw",
+  "version": "0.1.0",
+  "description": "Deterministic YAML workflow graphs your coding agent builds for itself",
+  "author": "Ali Abassi",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ali-abassi/pi-workflows.git"
+  },
+  "homepage": "https://github.com/ali-abassi/pi-workflows#readme",
+  "bugs": {
+    "url": "https://github.com/ali-abassi/pi-workflows/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "coding-agent",
+    "deterministic-workflow"
+  ],
+  "type": "module",
+  "bin": {
+    "piw": "./bin/piw"
+  },
+  "pi": {
+    "image": "./docs/assets/pi-workflows-studio.png",
+    "extensions": [
+      "./extensions/pi-workflows.ts"
+    ],
+    "skills": [
+      "./SKILL.md"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^0.80.10",
+    "@earendil-works/pi-coding-agent": "^0.80.10",
+    "typebox": "^1.1.24",
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test:examples": "PY=$([ -x .venv/bin/python ] && echo .venv/bin/python || echo python3); $PY scripts/run_example_suite.py --validate-only",
+    "test:extension": "node --experimental-strip-types --test extensions/pi-workflows.test.mjs",
+    "test": "PY=$([ -x .venv/bin/python ] && echo .venv/bin/python || echo python3); $PY -m unittest discover -s tests -v && npm run test:extension",
+    "verify": "./scripts/check.sh"
+  }
+}

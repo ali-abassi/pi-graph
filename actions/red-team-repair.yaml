@@ -1,0 +1,59 @@
+version: 1
+id: red-team-repair
+title: Adversarially inspect and repair an artifact
+description: Find falsifiable defects, repair only supported issues, and independently decide whether the result is safe to accept.
+category: quality
+inputs: A draft artifact plus its requirements or upstream context.
+outputs: Typed defects, a repaired artifact, and a pass or revise verification receipt.
+failure: Fails when defects are not tied to evidence, the repair is empty, or verification remains negative after bounded retries.
+effect: none
+retry_safe: true
+idempotency: not-required
+cost: three-model-calls
+steps:
+  - id: attack
+    needs: []
+    prompt: |
+      Adversarially inspect the source for requirement misses, unsupported claims, inconsistent
+      fields, unsafe assumptions, and non-verifiable completion. Return JSON only:
+      {"defects":[{"severity":"high|medium|low","evidence":"specific source detail","repair":"bounded change"}],"must_repair":true}
+
+      <source>
+      {{source}}
+      </source>
+    schema:
+      defects: array
+      must_repair: boolean
+    gate: python3 -c "import json; x=json.load(open('$OUT')); assert isinstance(x['defects'],list)"
+    retries: 1
+    retry_on: [model_error, gate_failed, schema_failed]
+  - id: repair
+    needs: [attack]
+    prompt: |
+      Produce the corrected artifact only. Apply each supported defect repair and preserve all
+      unaffected content. Do not invent facts to satisfy a reviewer.
+
+      <original>{{source}}</original>
+      <defects>{step.attack}</defects>
+    gate: test -s "$OUT"
+    retries: 1
+    retry_on: [model_error, gate_failed]
+  - id: verify
+    needs: [repair]
+    prompt: |
+      Independently compare the repaired artifact with the original defect list. Return JSON only:
+      {"verdict":"pass|revise","remaining_defects":["specific defect"],"evidence":["observable support"]}
+      Pass only if every high and medium defect is repaired without unsupported additions.
+
+      <defects>{step.attack}</defects>
+      <repaired>{step.repair}</repaired>
+    schema:
+      verdict: {type: string, enum: [pass, revise]}
+      remaining_defects: array
+      evidence: array
+    gate: python3 -c "import json; x=json.load(open('$OUT')); assert x['verdict'] == 'pass'"
+    retries: 1
+    retry_on: [model_error, gate_failed, schema_failed]
+    retry_delay_seconds: 1
+    retry_backoff: exponential
+

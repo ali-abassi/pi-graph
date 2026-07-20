@@ -1,0 +1,21 @@
+version: 1
+id: canonicalize-jsonl
+title: Canonicalize and validate JSONL
+description: Parse every input line, reject malformed records, and emit stable key-sorted compact JSONL.
+category: transform
+inputs: JSONL in the immutable input file.
+outputs: Canonical JSONL with exactly one output record per non-empty input line.
+failure: Fails immediately on malformed JSON or a non-object record; no model call or retry.
+effect: none
+retry_safe: true
+idempotency: not-required
+cost: zero-model-calls
+steps:
+  - id: canonicalize
+    needs: []
+    cmd: >-
+      python3 -c 'import json,os; rows=[json.loads(x) for x in open(os.environ["INPUT"]) if x.strip()];
+      assert all(isinstance(x,dict) for x in rows); print("\n".join(json.dumps(x,sort_keys=True,separators=(",",":")) for x in rows))'
+    gate: >-
+      python3 -c 'import json,os; xs=[x for x in open(os.environ["OUT"]) if x.strip()];
+      assert xs and all(isinstance(json.loads(x),dict) for x in xs)'

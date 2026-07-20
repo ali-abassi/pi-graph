@@ -1,0 +1,15 @@
+version: 1
+workflow: hello-command
+workers: 1
+input:
+  required: true
+  description: A name to greet
+steps:
+  - id: normalize
+    needs: []
+    cmd: tr -cd '[:alnum:] _-' < "$INPUT" | head -c 80
+    gate: test -s "$OUT"
+  - id: greet
+    needs: [normalize]
+    cmd: printf 'Hello, %s!\n' "$(cat "$RUN/normalize.md")"
+    gate: grep -q '^Hello, .*!$' "$OUT"

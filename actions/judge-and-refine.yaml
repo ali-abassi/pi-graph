@@ -1,0 +1,40 @@
+version: 1
+id: judge-and-refine
+title: Bounded generate, judge, and refine
+description: Produce an artifact, mechanically gate it, and allow at most three scored revisions.
+category: generate
+inputs: One objective from immutable input or --needs.
+outputs: Best artifact that clears both a non-empty gate and the declared semantic score.
+failure: Halts after three candidates when the independent score remains below eight.
+effect: none
+retry_safe: true
+idempotency: not-required
+cost: bounded-model-loop
+steps:
+  - id: refine
+    needs: []
+    prompt: |
+      Produce the requested artifact directly. Make every claim traceable to the source, keep the
+      structure easy to verify, and omit meta commentary.
+
+      <source>
+      {{source}}
+      </source>
+    gate: test -s "$OUT"
+    retries: 2
+    retry_on: [model_error, gate_failed, judge_below_target]
+    retry_delay_seconds: 1
+    retry_backoff: exponential
+    retry_max_delay_seconds: 4
+    judge:
+      thinking: medium
+      prompt: |
+        Score the candidate from 0 to 10 for source fidelity, completeness, specificity, and
+        verifiability. Return JSON only: {"score":0.0,"feedback":"one repair instruction"}
+
+        <candidate>
+        {out}
+        </candidate>
+      score: 8
+      max_iters: 3
+      keep_best: false

@@ -1,0 +1,61 @@
+version: 1
+id: batch-readiness
+title: Review a workflow before a large batch
+description: Independently inspect contract completeness and scale hazards, then emit a typed canary and launch decision.
+category: batch
+inputs: A workflow specification, execution plan, or proposed large-corpus job.
+outputs: Two focused reviews and a JSON ready, revise, or block decision with canary size, concurrency, stop rule, and required fixes.
+failure: Fails if either review is missing or the launch decision lacks a bounded canary and stop rule.
+effect: none
+retry_safe: true
+idempotency: not-required
+cost: three-model-calls
+steps:
+  - id: contract
+    needs: []
+    prompt: |
+      Review the proposed batch only for contract completeness: stable item identity, immutable
+      input, expected nodes, typed outputs, gates, retry eligibility, terminal-state accounting,
+      and resumability. Output exactly six Markdown bullets, one per material finding.
+
+      <proposal>
+      {{source}}
+      </proposal>
+    gate: test "$(grep -c '^- ' "$OUT")" -eq 6
+    retries: 1
+    retry_on: [model_error, gate_failed]
+  - id: scale
+    needs: []
+    prompt: |
+      Review the proposed batch only for scale hazards: combined item/node concurrency, external
+      rate limits, duplicate effects, token or dollar runaway, failure storms, oversized context,
+      and evidence retention. Output exactly six Markdown bullets, one per material finding.
+
+      <proposal>
+      {{source}}
+      </proposal>
+    gate: test "$(grep -c '^- ' "$OUT")" -eq 6
+    retries: 1
+    retry_on: [model_error, gate_failed]
+  - id: decision
+    needs: [contract, scale]
+    prompt: |
+      Make a conservative launch decision from both reviews. Return JSON only:
+      {"decision":"ready|revise|block","canary_items":5,"parallel_items":1,"stop_after_failures":1,"required_fixes":["fix"],"reason":"one sentence"}
+      Ready is allowed only when every correctness boundary is explicit. Canary items and both
+      numeric safety limits must be positive whole numbers.
+
+      <contract_review>{step.contract}</contract_review>
+      <scale_review>{step.scale}</scale_review>
+    schema:
+      decision: {type: string, enum: [ready, revise, block]}
+      canary_items: integer
+      parallel_items: integer
+      stop_after_failures: integer
+      required_fixes: array
+      reason: string
+    gate: >-
+      python3 -c "import json; x=json.load(open('$OUT')); assert x['canary_items']>0 and x['parallel_items']>0 and x['stop_after_failures']>0; assert x['decision'] in {'ready','revise','block'}"
+    retries: 1
+    retry_on: [model_error, gate_failed, schema_failed]
+

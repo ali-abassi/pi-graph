@@ -1,0 +1,33 @@
+version: 1
+id: exact-item-pipeline
+title: Five-stage exact item pipeline
+description: Normalize, enrich, score, verify, and emit one item with a mechanical receipt at every stage.
+category: batch
+inputs: One immutable item; use piw batch to apply the frozen graph to a corpus.
+outputs: READY, VERIFIED, scored, enriched normalized record plus all five step receipts.
+failure: Any missing prefix, malformed score, or skipped stage fails the item when used with --require-all.
+effect: none
+retry_safe: true
+idempotency: not-required
+cost: zero-model-calls
+steps:
+  - id: normalize
+    needs: []
+    cmd: tr -s '[:space:]' ' ' < "$INPUT"
+    gate: test -s "$OUT"
+  - id: enrich
+    needs: [normalize]
+    cmd: awk '{print "ENRICHED|" $0}' "$RUN/{{prefix}}-normalize.md"
+    gate: grep -q '^ENRICHED|' "$OUT"
+  - id: score
+    needs: [enrich]
+    cmd: checksum=$(cksum "$RUN/{{prefix}}-enrich.md" | awk '{print $1}'); printf 'SCORE|%s|' "$checksum"; cat "$RUN/{{prefix}}-enrich.md"
+    gate: grep -Eq '^SCORE\|[0-9]+\|ENRICHED\|' "$OUT"
+  - id: verify
+    needs: [score]
+    cmd: grep -Eq '^SCORE\|[0-9]+\|ENRICHED\|' "$RUN/{{prefix}}-score.md" && { printf 'VERIFIED|'; cat "$RUN/{{prefix}}-score.md"; }
+    gate: grep -q '^VERIFIED|SCORE|' "$OUT"
+  - id: emit
+    needs: [verify]
+    cmd: sed 's/^/READY|/' "$RUN/{{prefix}}-verify.md"
+    gate: grep -q '^READY|VERIFIED|SCORE|' "$OUT"

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Pi Workflows Studio</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand" aria-label="Pi Workflows Studio">
+      <svg class="mark" viewBox="0 0 800 800" aria-hidden="true">
+        <path fill-rule="evenodd" d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"/>
+        <path d="M517.36 400H634.72V634.72H517.36Z"/>
+      </svg>
+      <div><strong>workflows</strong><span>COMMUNITY STUDIO</span></div>
+    </div>
+    <div class="run-state">
+      <span id="statusDot" class="status-dot"></span>
+      <span id="statusText">Ready to run</span>
+    </div>
+    <button id="runButton" class="run-button" type="button">
+      <span class="run-icon">▶</span><span>Run workflow</span><kbd>⌘↵</kbd>
+    </button>
+  </header>
+
+  <main class="shell">
+    <section class="workspace" aria-label="Workflow graph">
+      <div class="workflow-heading">
+        <div>
+          <p class="eyebrow">EXECUTABLE BLUEPRINT</p>
+          <h1 id="workflowName">Workflow</h1>
+          <p id="workflowPath" class="path"></p>
+        </div>
+        <div class="metrics" aria-label="Workflow metrics">
+          <div><span id="nodeCount">0</span><small>NODES</small></div>
+          <div><span id="workerCount">0</span><small>WORKERS</small></div>
+          <div><span id="tokenCount">—</span><small>TOKENS</small></div>
+          <div><span id="costCount">—</span><small>COST</small></div>
+        </div>
+      </div>
+
+      <div id="graphViewport" class="graph-viewport">
+        <div class="graph-toolbar">
+          <span>GRAPH</span>
+          <div class="legend">
+            <span><i class="legend-line fixed"></i>code</span>
+            <span><i class="legend-line pinned"></i>model</span>
+            <span><i class="legend-line open"></i>agent</span>
+          </div>
+        </div>
+        <svg id="graph" role="img" aria-label="Workflow dependency graph"></svg>
+        <div id="emptyGraph" class="empty-state" hidden>
+          <b>No renderable nodes</b><span>Validate steps.yaml to see the graph.</span>
+        </div>
+      </div>
+
+      <section class="flight-recorder" aria-label="Run evidence">
+        <div class="section-title">
+          <span>FLIGHT RECORDER</span>
+          <span id="runId" class="mono">NO RUN YET</span>
+        </div>
+        <div id="eventFeed" class="event-feed">
+          <div class="event muted"><time>—</time><span>Waiting for a workflow run.</span></div>
+        </div>
+      </section>
+    </section>
+
+    <aside class="inspector" aria-label="Node inspector">
+      <div class="inspector-tabs" role="tablist">
+        <button class="tab active" data-tab="node" role="tab">Node</button>
+        <button class="tab" data-tab="input" role="tab">Input</button>
+        <button class="tab" data-tab="output" role="tab">Output</button>
+      </div>
+
+      <div id="nodePanel" class="panel active" role="tabpanel">
+        <div class="node-identity">
+          <span id="nodeKind" class="kind-pill">NODE</span>
+          <span id="nodeStatus" class="node-status">not run</span>
+        </div>
+        <h2 id="nodeName">Select a node</h2>
+        <p id="nodeSummary" class="muted-copy">Click any graph node to inspect its exact runtime contract.</p>
+        <dl id="nodeFacts" class="facts"></dl>
+        <div class="code-section">
+          <div class="code-label"><span>DECLARATION</span><button id="copyBody" type="button">Copy</button></div>
+          <pre id="nodeBody">—</pre>
+        </div>
+      </div>
+
+      <div id="inputPanel" class="panel" role="tabpanel">
+        <label for="workflowInput">IMMUTABLE RUN INPUT</label>
+        <p id="inputDescription" class="muted-copy"></p>
+        <textarea id="workflowInput" spellcheck="false" placeholder="Paste the input this run should freeze…"></textarea>
+        <div class="input-foot"><span id="inputBytes">0 B</span><span>copied into input.txt</span></div>
+      </div>
+
+      <div id="outputPanel" class="panel" role="tabpanel">
+        <div class="output-heading"><span>LATEST ARTIFACT</span><button id="copyOutput" type="button">Copy</button></div>
+        <pre id="runOutput">Run the graph to inspect its final artifact.</pre>
+        <div id="hotspot" class="hotspot" hidden></div>
+      </div>
+
+      <div id="errorBox" class="error-box" role="alert" hidden></div>
+    </aside>
+  </main>
+
+  <script id="piw-boot" type="application/json">__PIW_BOOT__</script>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>
