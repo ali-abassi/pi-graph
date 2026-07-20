@@ -10,7 +10,8 @@
 
 # pi graph
 
-**Agents skip steps. pi graph doesn't.**
+**pi graph gives coding agents a reliable way to create deterministic
+workflows that execute every required step and prove what happened.**
 
 Deterministic YAML workflow graphs for coding agents. Your agent authors
 `steps.yaml`; from then on code owns order, gates, retries, and budget. The
