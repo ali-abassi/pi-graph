@@ -76,6 +76,8 @@ from pathlib import Path
 
 import yaml
 
+SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "workflow.schema.json"
+
 PI_BASE = [
     "pi", "-p", "--mode", "json", "--no-session",
     "--no-approve", "--offline",
@@ -86,6 +88,33 @@ VERDICT_RE = re.compile(r'"verdict"\s*:\s*"(pass|fail)"')
 STEP_REF_RE = re.compile(r"\{step\.([A-Za-z0-9_-]+)\}")
 PLACEHOLDER_RE = re.compile(r"\{(run|input|prev|step\.[A-Za-z0-9_-]+)\}")
 LOG_LOCK = threading.Lock()
+
+
+def validate_workflow_contract(spec: object, steps_file: Path) -> dict:
+    """Fail closed on the published authoring contract before any node runs."""
+    if not isinstance(spec, dict):
+        raise SystemExit("workflow must be a YAML object")
+    try:
+        from jsonschema import Draft202012Validator
+
+        contract = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    except (ImportError, OSError, ValueError) as error:
+        raise SystemExit(f"workflow schema validator unavailable: {error}") from error
+    errors = sorted(
+        Draft202012Validator(contract).iter_errors(spec),
+        key=lambda error: [str(part) for part in error.absolute_path],
+    )
+    if errors:
+        error = errors[0]
+        location = ".".join(str(part) for part in error.absolute_path) or "<root>"
+        message = error.message
+        if error.validator == "pattern":
+            message = f"{error.instance!r} must match {error.validator_value!r}"
+        raise SystemExit(
+            f"workflow schema invalid at {location}: {message}\n"
+            f"next: piw validate {steps_file}"
+        )
+    return spec
 
 
 def log(run_dir: Path, line: str) -> None:
@@ -1070,7 +1099,7 @@ def main() -> int:
         args.events.parent.mkdir(parents=True, exist_ok=True)
         EVENTS_PATH = args.events
 
-    spec = yaml.safe_load(args.steps_file.read_text())
+    spec = validate_workflow_contract(yaml.safe_load(args.steps_file.read_text()), args.steps_file)
     steps = spec.get("steps") or []
     if not steps:
         raise SystemExit("no steps defined")

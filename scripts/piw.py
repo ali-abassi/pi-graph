@@ -1633,11 +1633,12 @@ def cmd_doctor(args) -> int:
         package_settings = json.loads(settings.read_text(encoding="utf-8")) or {}
         sources = [value.get("source") if isinstance(value, dict) else value
                    for value in package_settings.get("packages") or []]
-        registered = {
-            (settings.parent / value).expanduser().resolve()
-            for value in sources
-            if isinstance(value, str) and not value.startswith(("npm:", "git:", "http:", "https:", "ssh:"))
-        }
+        registered = set()
+        for value in sources:
+            if not isinstance(value, str) or value.startswith(("npm:", "git:", "http:", "https:", "ssh:")):
+                continue
+            candidate = Path(value).expanduser()
+            registered.add((candidate if candidate.is_absolute() else settings.parent / candidate).resolve())
         pi_package_ok = product_root in registered
     except (OSError, ValueError, TypeError):
         pass

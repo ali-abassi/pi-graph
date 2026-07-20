@@ -9,6 +9,7 @@ keep_backups=${PI_WORKFLOWS_KEEP_BACKUPS:-2}
 
 codex_skill="$HOME/.agents/skills/pi-workflows"
 claude_skill="$HOME/.claude/skills/pi-workflows"
+pi_skill="$HOME/.pi/agent/skills/pi-workflows"
 
 usage() {
   cat <<EOF
@@ -38,9 +39,18 @@ unlink_ours() {
 }
 
 uninstall() {
+  if command -v pi >/dev/null 2>&1; then
+    if pi remove "$install_dir" --approve >/dev/null; then
+      printf 'removed Pi package registration for %s\n' "$install_dir"
+    else
+      printf 'could not remove the Pi package registration; install left in place\n' >&2
+      return 1
+    fi
+  fi
   unlink_ours "$user_bin/piw"
   unlink_ours "$codex_skill"
   unlink_ours "$claude_skill"
+  unlink_ours "$pi_skill"
   if [ -d "$install_dir" ]; then
     rm -rf "$install_dir"
     printf 'removed %s\n' "$install_dir"
@@ -51,7 +61,6 @@ uninstall() {
     printf 'removed %s\n' "$old"
   done
   printf 'pi workflows uninstalled.\n'
-  printf 'Note: the Pi package registration in ~/.pi/agent/settings.json is left untouched.\n'
 }
 
 case "${1:-}" in
@@ -135,10 +144,11 @@ link() {
   ln -sfn "$target" "$name"
 }
 
-mkdir -p "$user_bin" "$(dirname -- "$codex_skill")" "$(dirname -- "$claude_skill")"
+mkdir -p "$user_bin" "$(dirname -- "$codex_skill")" "$(dirname -- "$claude_skill")" "$(dirname -- "$pi_skill")"
 link "$install_dir/bin/piw" "$user_bin/piw"
 link "$install_dir" "$codex_skill"
 link "$install_dir" "$claude_skill"
+link "$install_dir" "$pi_skill"
 
 if command -v pi >/dev/null 2>&1; then
   pi install "$install_dir" --approve >/dev/null
@@ -175,6 +185,7 @@ printf '\npi workflows installed: %s\n' "$install_dir"
 printf 'CLI: %s\n' "$user_bin/piw"
 printf 'Codex skill: %s\n' "$codex_skill"
 printf 'Claude Code skill: %s\n' "$claude_skill"
+printf 'Pi skill: %s\n' "$pi_skill"
 printf 'Run: piw doctor\n'
 printf 'Uninstall: %s/install.sh --uninstall\n' "$install_dir"
 case ":$PATH:" in

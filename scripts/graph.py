@@ -485,6 +485,7 @@ def update_step(steps_path: Path, step_id: str, changes: dict[str, Any]) -> dict
     """
     try:
         from ruamel.yaml import YAML
+        from ruamel.yaml.scalarstring import DoubleQuotedScalarString, LiteralScalarString
     except ImportError as error:  # pragma: no cover - depends on environment
         raise WorkflowParseError(
             "editing needs ruamel.yaml (pip install ruamel.yaml); steps.yaml left untouched"
@@ -513,6 +514,24 @@ def update_step(steps_path: Path, step_id: str, changes: dict[str, Any]) -> dict
     if target is None:
         raise WorkflowParseError(f"unknown step: {step_id}")
 
+    def preserve_yaml_string_types(value: Any) -> Any:
+        """Quote strings that PyYAML 1.1 would silently coerce on reload."""
+        if isinstance(value, str):
+            if "\n" in value:
+                return LiteralScalarString(value if value.endswith("\n") else value + "\n")
+            try:
+                parsed = yaml.safe_load(value)
+            except yaml.YAMLError:
+                parsed = None
+            if not isinstance(parsed, str) or parsed != value:
+                return DoubleQuotedScalarString(value)
+            return value
+        if isinstance(value, list):
+            return [preserve_yaml_string_types(item) for item in value]
+        if isinstance(value, dict):
+            return {key: preserve_yaml_string_types(item) for key, item in value.items()}
+        return value
+
     # A step must keep exactly one of cmd/prompt, which the runner enforces at load.
     for key, value in changes.items():
         if value in (None, ""):
@@ -523,11 +542,10 @@ def update_step(steps_path: Path, step_id: str, changes: dict[str, Any]) -> dict
         elif key in ("retry_delay_seconds", "retry_max_delay_seconds", "retry_jitter"):
             coerced = float(value)
         elif key == "prompt":
-            from ruamel.yaml.scalarstring import LiteralScalarString
             text = str(value)
             coerced = LiteralScalarString(text if text.endswith("\n") else text + "\n")
         else:
-            coerced = value
+            coerced = preserve_yaml_string_types(value)
 
         if key in target:
             target[key] = coerced

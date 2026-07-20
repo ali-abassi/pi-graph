@@ -19,6 +19,90 @@ CLI = ROOT / "scripts" / "piw.py"
 
 
 class ProductCliTests(unittest.TestCase):
+    def test_doctor_accepts_pi_normalized_home_package_path(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            (home / ".pi" / "agent").mkdir(parents=True)
+            (home / ".pi-workflows").symlink_to(ROOT, target_is_directory=True)
+            (home / ".pi" / "agent" / "settings.json").write_text(
+                json.dumps({"packages": ["~/.pi-workflows"]}), encoding="utf-8",
+            )
+            fake_bin = home / "bin"
+            fake_bin.mkdir()
+            fake_pi = fake_bin / "pi"
+            fake_pi.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1\" = \"--version\" ]; then\n"
+                "  printf '%s\\n' 'pi 0.80.10'\n"
+                "else\n"
+                "  printf '%s\\n' '{\"id\":\"pi-workflows-doctor\",\"success\":true,"
+                "\"data\":{\"commands\":[{\"name\":\"skill:pi-workflows\"}]}}'\n"
+                "fi\n",
+                encoding="utf-8",
+            )
+            fake_pi.chmod(0o755)
+            result = subprocess.run(
+                [sys.executable, str(CLI), "doctor", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+                env={
+                    **os.environ,
+                    "HOME": str(home),
+                    "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+                },
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            checks = {item["name"]: item for item in json.loads(result.stdout)["checks"]}
+            self.assertTrue(checks["pi-package"]["ok"])
+            self.assertTrue(checks["pi-skill"]["ok"])
+
+    def test_set_thinking_off_remains_a_string_and_validates(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            steps = Path(raw) / "steps.yaml"
+            steps.write_text(yaml.safe_dump({
+                "version": 1,
+                "workflow": "thinking-off",
+                "model": "test/luna",
+                "steps": [{"id": "draft", "prompt": "Draft", "gate": 'test -s "$OUT"'}],
+            }, sort_keys=False), encoding="utf-8")
+            changed = subprocess.run(
+                [sys.executable, str(CLI), "set", str(steps), "draft", "--thinking", "off"],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            self.assertEqual(changed.returncode, 0, changed.stdout + changed.stderr)
+            self.assertEqual(yaml.safe_load(steps.read_text(encoding="utf-8"))["steps"][0]["thinking"], "off")
+            validated = subprocess.run(
+                [sys.executable, str(CLI), "validate", str(steps), "--json"],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            self.assertEqual(validated.returncode, 0, validated.stdout + validated.stderr)
+            self.assertTrue(json.loads(validated.stdout)["holds"])
+
+    def test_run_rejects_schema_invalid_workflow_before_any_node_executes(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            marker = root / "executed"
+            steps = root / "steps.yaml"
+            steps.write_text(
+                "version: 1\n"
+                "workflow: invalid-before-run\n"
+                "thinking: false\n"
+                "steps:\n"
+                "  - id: effect\n"
+                f"    cmd: printf ran > {marker}\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [sys.executable, str(RUNNER), str(steps)],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("workflow schema invalid at thinking", result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertFalse((root / "runs").exists())
+
     def test_agent_guides_expose_the_complete_operating_loop(self) -> None:
         required = [
             "piw actions", "piw validate", "piw run", "piw detail", "--step",
@@ -233,6 +317,7 @@ class ProductCliTests(unittest.TestCase):
             root = Path(raw)
             steps = root / "steps.yaml"
             steps.write_text(yaml.safe_dump({
+                "version": 1,
                 "workflow": "input-isolation",
                 "input": {"required": True, "description": "test value"},
                 "steps": [{
@@ -404,8 +489,9 @@ class ProductCliTests(unittest.TestCase):
             root = Path(raw)
             steps = root / "steps.yaml"
             steps.write_text(yaml.safe_dump({
+                "version": 1,
                 "workflow": "required-input",
-                "input": {"required": True},
+                "input": {"required": True, "description": "required fixture"},
                 "steps": [{"id": "never", "cmd": "exit 99"}],
             }), encoding="utf-8")
             result = subprocess.run(
