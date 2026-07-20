@@ -38,10 +38,24 @@ mv "$stage/product" "$install_dir"
 
 "$install_dir/bin/piw" schema --json >/dev/null
 
+# `ln -sfn` replaces a real file without warning, and when the target is an
+# existing real directory it silently creates the link *inside* it instead.
+# Move anything that is not already our symlink out of the way first.
+link() {
+  target=$1
+  name=$2
+  if [ -e "$name" ] && [ ! -L "$name" ]; then
+    backup="$name.backup-$(date +%Y%m%d-%H%M%S)"
+    mv "$name" "$backup"
+    printf 'Existing %s moved to: %s\n' "$name" "$backup" >&2
+  fi
+  ln -sfn "$target" "$name"
+}
+
 mkdir -p "$user_bin" "$HOME/.agents/skills" "$HOME/.claude/skills"
-ln -sfn "$install_dir/bin/piw" "$user_bin/piw"
-ln -sfn "$install_dir" "$HOME/.agents/skills/pi-workflows"
-ln -sfn "$install_dir" "$HOME/.claude/skills/pi-workflows"
+link "$install_dir/bin/piw" "$user_bin/piw"
+link "$install_dir" "$HOME/.agents/skills/pi-workflows"
+link "$install_dir" "$HOME/.claude/skills/pi-workflows"
 
 if command -v pi >/dev/null 2>&1; then
   pi install "$install_dir" --approve >/dev/null

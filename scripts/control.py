@@ -103,7 +103,9 @@ def discover_workflows(force: bool = False) -> list[dict[str, Any]]:
         except ValueError:
             rel = path
         parent = path.parent.name or path.parent.parent.name or "workflow"
-        base = slugify(f"{rel.parent}-{parent}") if str(rel.parent) != "." else slugify(parent)
+        # rel.parent already ends with the workflow directory, so appending
+        # `parent` again produced ids like "01-hello-command-01-hello-command".
+        base = slugify(str(rel.parent)) if str(rel.parent) != "." else slugify(parent)
         identifier = base
         suffix = 2
         while identifier in found and found[identifier]["path"] != str(path):
