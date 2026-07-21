@@ -3,6 +3,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/ali-abassi/pi-workflows/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ali-abassi/pi-workflows/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/ali-abassi/pi-workflows/releases"><img alt="release" src="https://img.shields.io/github/v/release/ali-abassi/pi-workflows"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-11110f"></a>
 </p>
@@ -31,7 +32,7 @@ piw doctor                                        # installed piw, not ./bin/piw
 ```
 
 macOS/Linux · Python 3.10+ · Pi 0.80.10+ for model nodes ·
-`./install.sh --uninstall` reverses it.
+`piw` installs from this clone, not npm · `./install.sh --uninstall` reverses it.
 
 ## The loop
 

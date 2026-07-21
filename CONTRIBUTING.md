@@ -7,7 +7,7 @@ runtime improvements.
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install 'PyYAML>=6,<7' 'ruamel.yaml>=0.18,<0.19' 'jsonschema>=4.23,<5'
+.venv/bin/python -m pip install -r requirements.txt
 npm ci --ignore-scripts
 npm run verify
 ```
