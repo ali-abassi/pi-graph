@@ -23,9 +23,9 @@ class ProductCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             home = Path(raw)
             (home / ".pi" / "agent").mkdir(parents=True)
-            (home / ".pi-workflows").symlink_to(ROOT, target_is_directory=True)
+            (home / ".pi-graph").symlink_to(ROOT, target_is_directory=True)
             (home / ".pi" / "agent" / "settings.json").write_text(
-                json.dumps({"packages": ["~/.pi-workflows"]}), encoding="utf-8",
+                json.dumps({"packages": ["~/.pi-graph"]}), encoding="utf-8",
             )
             fake_bin = home / "bin"
             fake_bin.mkdir()
@@ -35,8 +35,8 @@ class ProductCliTests(unittest.TestCase):
                 "if [ \"$1\" = \"--version\" ]; then\n"
                 "  printf '%s\\n' 'pi 0.80.10'\n"
                 "else\n"
-                "  printf '%s\\n' '{\"id\":\"pi-workflows-doctor\",\"success\":true,"
-                "\"data\":{\"commands\":[{\"name\":\"skill:pi-workflows\"}]}}'\n"
+                "  printf '%s\\n' '{\"id\":\"pi-graph-doctor\",\"success\":true,"
+                "\"data\":{\"commands\":[{\"name\":\"skill:pi-graph\"}]}}'\n"
                 "fi\n",
                 encoding="utf-8",
             )
@@ -157,7 +157,7 @@ class ProductCliTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
-            environment = {**os.environ, "PI_WORKFLOWS_ROOTS": str(root), "HOME": str(root)}
+            environment = {**os.environ, "PI_GRAPH_ROOTS": str(root), "HOME": str(root)}
             subprocess.run(
                 [sys.executable, str(CLI), "create", "demo", "--action", action.group(1)],
                 cwd=root, capture_output=True, text=True, env=environment, timeout=120, check=True,
@@ -258,7 +258,7 @@ class ProductCliTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         schema = json.loads(result.stdout)
-        metadata = schema["x-pi-workflows"]
+        metadata = schema["x-pi-graph"]
         self.assertEqual(
             [node["kind"] for node in metadata["nodeKinds"]],
             ["command", "llm", "tool", "agent", "qa"],
@@ -273,7 +273,7 @@ class ProductCliTests(unittest.TestCase):
         )
         self.assertEqual(
             set(metadata["runtimeInputs"]["commandAndGate"]),
-            {"$INPUT", "$PI_WORKFLOWS_INPUT", "$OUT", "$RUN", "$STEP"},
+            {"$INPUT", "$PI_GRAPH_INPUT", "$OUT", "$RUN", "$STEP"},
         )
 
     def test_validate_rejects_ambiguous_node_kind_before_execution(self) -> None:
@@ -349,7 +349,7 @@ class ProductCliTests(unittest.TestCase):
     def test_create_emits_a_valid_explicit_input_workflow(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             target = Path(raw) / "triage"
-            env = {**os.environ, "PI_WORKFLOWS_ROOTS": raw}
+            env = {**os.environ, "PI_GRAPH_ROOTS": raw}
             created = subprocess.run(
                 [sys.executable, str(CLI), "create", "Triage", "--dir", str(target), "--json"],
                 capture_output=True, text=True, env=env, timeout=30, check=False,
@@ -373,7 +373,7 @@ class ProductCliTests(unittest.TestCase):
     def test_action_catalog_creates_and_expands_plain_valid_nodes(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
-            env = {**os.environ, "PI_WORKFLOWS_ROOTS": raw}
+            env = {**os.environ, "PI_GRAPH_ROOTS": raw}
             listed = subprocess.run(
                 [sys.executable, str(CLI), "actions", "--json"],
                 capture_output=True, text=True, env=env, timeout=30, check=False,
@@ -513,9 +513,9 @@ class ProductCliTests(unittest.TestCase):
             }, sort_keys=False), encoding="utf-8")
             env = {
                 **os.environ,
-                "PI_WORKFLOWS_ROOTS": raw,
+                "PI_GRAPH_ROOTS": raw,
                 "LOOPS_PORT": "1",
-                "PI_WORKFLOWS_STATE_DIR": str(root / "state"),
+                "PI_GRAPH_STATE_DIR": str(root / "state"),
             }
             result = subprocess.run(
                 [sys.executable, str(CLI), "run", str(steps), "--input", "Ada", "--json"],
@@ -542,9 +542,9 @@ class ProductCliTests(unittest.TestCase):
             input_file.write_text("Ada", encoding="utf-8")
             env = {
                 **os.environ,
-                "PI_WORKFLOWS_ROOTS": str(root),
+                "PI_GRAPH_ROOTS": str(root),
                 "LOOPS_PORT": "1",
-                "PI_WORKFLOWS_STATE_DIR": str(root / "state"),
+                "PI_GRAPH_STATE_DIR": str(root / "state"),
             }
             result = subprocess.run(
                 [sys.executable, str(CLI), "run", "workflow/steps.yaml", "--input-file", "input.txt", "--json"],
@@ -565,9 +565,9 @@ class ProductCliTests(unittest.TestCase):
             }, sort_keys=False), encoding="utf-8")
             env = {
                 **os.environ,
-                "PI_WORKFLOWS_ROOTS": raw,
+                "PI_GRAPH_ROOTS": raw,
                 "LOOPS_PORT": "1",
-                "PI_WORKFLOWS_STATE_DIR": str(root / "state"),
+                "PI_GRAPH_STATE_DIR": str(root / "state"),
             }
             started = time.monotonic()
             result = subprocess.run(

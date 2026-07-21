@@ -2,7 +2,7 @@
 
 This deliberately contains no Loops imports. The CLI can use Loops over its
 localhost API when available, but workflow discovery and direct execution must
-remain useful on a clean Pi Workflows install.
+remain useful on a clean Pi Graph install.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ import yaml
 
 PRODUCT_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW_RUNNER = PRODUCT_ROOT / "scripts" / "run_steps.py"
-PI_WORKFLOWS_HOME = Path(os.environ.get("PI_WORKFLOWS_HOME", Path.home() / ".pi-workflows")).expanduser()
-STATE_DIR = Path(os.environ.get("PI_WORKFLOWS_STATE_DIR", PI_WORKFLOWS_HOME / "state")).expanduser()
+PI_GRAPH_HOME = Path(os.environ.get("PI_GRAPH_HOME", Path.home() / ".pi-graph")).expanduser()
+STATE_DIR = Path(os.environ.get("PI_GRAPH_STATE_DIR", PI_GRAPH_HOME / "state")).expanduser()
 PYGRAPH_EVENTS_DIR = STATE_DIR / "events"
 DEFAULT_PORT = int(os.environ.get("LOOPS_PORT", "47821"))
 
@@ -43,7 +43,7 @@ def _project_root(start: Path) -> Path | None:
 
 
 def _registry_roots() -> list[Path]:
-    path = PI_WORKFLOWS_HOME / "roots.json"
+    path = PI_GRAPH_HOME / "roots.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
@@ -53,7 +53,7 @@ def _registry_roots() -> list[Path]:
 
 
 def scan_roots() -> list[Path]:
-    override = (os.environ.get("PI_WORKFLOWS_ROOTS") or os.environ.get("LOOPS_WORKFLOW_ROOTS") or "").strip()
+    override = (os.environ.get("PI_GRAPH_ROOTS") or os.environ.get("LOOPS_WORKFLOW_ROOTS") or "").strip()
     if override:
         roots = [Path(part).expanduser() for part in override.split(os.pathsep) if part]
     else:

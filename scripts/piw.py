@@ -1,4 +1,4 @@
-"""piw — drive deterministic Pi Workflows from the terminal.
+"""piw — drive deterministic Pi Graph from the terminal.
 
 Built for agents as much as humans: every command prints compact, greppable
 lines rather than verbose JSON, and every command takes --json when a machine
@@ -204,8 +204,8 @@ def cmd_schema(args) -> int:
         out(json.dumps(schema, separators=(",", ":")))
         return 0
 
-    metadata = schema["x-pi-workflows"]
-    out("Pi Workflows v1 · canonical file: steps.yaml")
+    metadata = schema["x-pi-graph"]
+    out("Pi Graph v1 · canonical file: steps.yaml")
     out(f"JSON Schema: {SCHEMA_PATH}")
     out()
     out("NODES")
@@ -1591,8 +1591,8 @@ def cmd_doctor(args) -> int:
                        "detail": detail, "fix": "" if ok else fix})
 
     check("python", sys.version_info >= (3, 10), sys.version.split()[0],
-          fix="pi workflows needs Python 3.10+. Re-run ./install.sh with "
-              "PI_WORKFLOWS_PYTHON_BOOTSTRAP set to a newer interpreter.")
+          fix="pi graph needs Python 3.10+. Re-run ./install.sh with "
+              "PI_GRAPH_PYTHON_BOOTSTRAP set to a newer interpreter.")
     try:
         import jsonschema  # type: ignore[import-not-found]  # noqa: F401
         import ruamel.yaml  # type: ignore[import-not-found]  # noqa: F401
@@ -1648,12 +1648,12 @@ def cmd_doctor(args) -> int:
               "this checkout instead, run ./install.sh from it.")
 
     pi_skill_ok = False
-    pi_skill_detail = "skill:pi-workflows unavailable"
+    pi_skill_detail = "skill:pi-graph unavailable"
     if pi_bin and pi_ok:
         try:
             result = subprocess.run(
                 [pi_bin, "--mode", "rpc", "--no-session"],
-                input='{"type":"get_commands","id":"pi-workflows-doctor"}\n',
+                input='{"type":"get_commands","id":"pi-graph-doctor"}\n',
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -1665,12 +1665,12 @@ def cmd_doctor(args) -> int:
                     event = json.loads(line)
                 except (json.JSONDecodeError, ValueError):
                     continue
-                if event.get("id") != "pi-workflows-doctor" or not event.get("success"):
+                if event.get("id") != "pi-graph-doctor" or not event.get("success"):
                     continue
                 commands = ((event.get("data") or {}).get("commands") or [])
-                pi_skill_ok = any(command.get("name") == "skill:pi-workflows" for command in commands)
+                pi_skill_ok = any(command.get("name") == "skill:pi-graph" for command in commands)
                 if pi_skill_ok:
-                    pi_skill_detail = "skill:pi-workflows loaded"
+                    pi_skill_detail = "skill:pi-graph loaded"
                 break
         except (OSError, subprocess.SubprocessError, TypeError):
             pass
@@ -1683,8 +1683,8 @@ def cmd_doctor(args) -> int:
         check("scheduler", loops_ok,
               f"{DAEMON} · {'connected' if loops_ok else 'adapter present but not responding'}",
               required=False)
-    codex = Path.home() / ".agents" / "skills" / "pi-workflows" / "SKILL.md"
-    claude = Path.home() / ".claude" / "skills" / "pi-workflows" / "SKILL.md"
+    codex = Path.home() / ".agents" / "skills" / "pi-graph" / "SKILL.md"
+    claude = Path.home() / ".claude" / "skills" / "pi-graph" / "SKILL.md"
     check("codex-skill", codex.is_file(), str(codex), required=False)
     check("claude-skill", claude.is_file(), str(claude), required=False)
 
@@ -1699,7 +1699,7 @@ def cmd_doctor(args) -> int:
     if args.json:
         out(json.dumps(payload, separators=(",", ":")))
     else:
-        out(f"pi workflows · {'ready' if core_ok else 'not ready'}")
+        out(f"pi graph · {'ready' if core_ok else 'not ready'}")
         for item in checks:
             mark = "ok" if item["ok"] else ("FAIL" if item["required"] else "note")
             out(f"  [{mark.ljust(4)}] {item['name']} · {item['detail']}")
@@ -1797,7 +1797,7 @@ def _run_loops(args: list[str]) -> subprocess.CompletedProcess[str]:
     if not executable:
         raise RuntimeError(
             "no scheduler adapter found on PATH. Scheduling is an optional "
-            "integration that is not bundled with pi workflows; every other "
+            "integration that is not bundled with pi graph; every other "
             "command, including `piw batch`, works without one."
         )
     return subprocess.run([executable, *args], capture_output=True, text=True, timeout=30, check=False)
@@ -1822,7 +1822,7 @@ def cmd_schedule(args) -> int:
         return fail("workflow validation failed; automation was not created")
     piw_bin = (Path(__file__).resolve().parent.parent / "bin" / "piw").resolve()
     command = " ".join([
-        "PI_WORKFLOWS_AUTOMATION=1",
+        "PI_GRAPH_AUTOMATION=1",
         shlex.quote(str(piw_bin)),
         "run",
         shlex.quote(workflow["path"]),
@@ -1877,7 +1877,7 @@ def cmd_automations(args) -> int:
     if result.returncode != 0:
         return fail((result.stderr or result.stdout).strip())
     try:
-        rows = [row for row in json.loads(result.stdout) if "PI_WORKFLOWS_AUTOMATION=1" in str(row.get("action_payload", ""))]
+        rows = [row for row in json.loads(result.stdout) if "PI_GRAPH_AUTOMATION=1" in str(row.get("action_payload", ""))]
     except (ValueError, TypeError, AttributeError):
         return fail("Loops returned malformed automation data")
     if args.json:
@@ -1931,8 +1931,8 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("name")
     create.add_argument("--dir", help="target directory (default: ./<workflow-name>)")
     create.add_argument("--action", help="start from one reusable action instead of the generic two-step scaffold")
-    create.add_argument("--model", default=os.environ.get("PI_WORKFLOWS_MODEL", "openai-codex/gpt-5.6-luna"))
-    create.add_argument("--qa-model", default=os.environ.get("PI_WORKFLOWS_QA_MODEL", "openai-codex/gpt-5.6-terra"))
+    create.add_argument("--model", default=os.environ.get("PI_GRAPH_MODEL", "openai-codex/gpt-5.6-luna"))
+    create.add_argument("--qa-model", default=os.environ.get("PI_GRAPH_QA_MODEL", "openai-codex/gpt-5.6-terra"))
     create.add_argument("--thinking", choices=["off", "minimal", "low", "medium", "high", "xhigh", "max"], default="low")
     create.add_argument("--workers", type=int, choices=range(1, 17), default=4)
 

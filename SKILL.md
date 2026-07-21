@@ -1,5 +1,5 @@
 ---
-name: pi-workflows
+name: pi-graph
 description: "Create or use deterministic Pi workflow graphs for repeatable multi-step work, automations, scheduled loops, explicit gates, branching, model/tool configuration, run evidence, caching, cost control, and independent QA. Use when ordering, validation, routing, retries, artifacts, or a schedule must be mechanically reliable; skip for a one-step task that ordinary tools can finish directly."
 ---
 
@@ -15,7 +15,7 @@ into ordinary inspectable nodes with `piw create --action` or `piw add`.
 
 ## Agent operating contract
 
-Use pi workflows when control flow must be remembered by code: required order,
+Use pi graph when control flow must be remembered by code: required order,
 repeatable inputs, branches, retries, quality gates, cost ceilings, external
 effects, or scheduled execution. Do not create a workflow for a one-step task.
 

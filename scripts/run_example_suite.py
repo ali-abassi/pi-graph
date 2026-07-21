@@ -214,7 +214,7 @@ def write_report(out_dir: Path, validated: list[dict[str, Any]], runs: list[dict
     (out_dir / "report.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
     lines = [
-        "# Pi Workflows example certification",
+        "# Pi Graph example certification",
         "",
         f"{len(validated)} workflows validated · {len(runs)} live runs · model `{model}` · thinking `{thinking}`",
         f"{sum(run['tokens'] for run in runs)} tokens · ${sum(run['cost'] for run in runs):.4f} · {sum(run['wallSeconds'] for run in runs):.1f}s wall",
@@ -261,8 +261,8 @@ def main() -> int:
         workspace.mkdir(parents=True, exist_ok=False)
         env = {
             **os.environ,
-            "PI_WORKFLOWS_ROOTS": str(workspace),
-            "PI_WORKFLOWS_STATE_DIR": str(out_dir / "state"),
+            "PI_GRAPH_ROOTS": str(workspace),
+            "PI_GRAPH_STATE_DIR": str(out_dir / "state"),
             "LOOPS_PORT": "1",
         }
 

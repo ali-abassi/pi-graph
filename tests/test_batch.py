@@ -38,7 +38,7 @@ class BatchTests(unittest.TestCase):
         env = {
             **os.environ,
             "LOOPS_PORT": "1",
-            "PI_WORKFLOWS_STATE_DIR": str(Path(tempfile.gettempdir()) / "piw-batch-test-state"),
+            "PI_GRAPH_STATE_DIR": str(Path(tempfile.gettempdir()) / "piw-batch-test-state"),
             **(env_overrides or {}),
         }
         return subprocess.run(
@@ -257,6 +257,18 @@ class BatchTests(unittest.TestCase):
             self.assertEqual(state["status"], "completed")
             self.assertEqual(state["passed"], 3)
             self.assertEqual(state["all_steps_passed"], 3)
+            # "completed" is written before the detached worker exits; wait for
+            # the process to die or its final artifact writes race the tempdir
+            # cleanup below.
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                try:
+                    os.kill(launch["pid"], 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.05)
+            else:
+                self.fail("detached batch process did not exit after completion")
 
     def test_parallel_shared_workspace_steps_require_explicit_opt_in(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

@@ -1,16 +1,16 @@
 <p align="center">
-  <img src="docs/assets/pi-workflows-hero.svg" alt="pi workflows" width="100%">
+  <img src="docs/assets/pi-graph-hero.svg" alt="pi graph" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/ali-abassi/pi-workflows/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ali-abassi/pi-workflows/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/ali-abassi/pi-workflows/releases"><img alt="release" src="https://img.shields.io/github/v/release/ali-abassi/pi-workflows"></a>
+  <a href="https://github.com/ali-abassi/pi-graph/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ali-abassi/pi-graph/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ali-abassi/pi-graph/releases"><img alt="release" src="https://img.shields.io/github/v/release/ali-abassi/pi-graph"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-11110f"></a>
 </p>
 
-# pi workflows
+# pi graph
 
-**Agents skip steps. pi workflows doesn't.**
+**Agents skip steps. pi graph doesn't.**
 
 Deterministic YAML workflow graphs for coding agents. Your agent authors
 `steps.yaml`; from then on code owns order, gates, retries, and budget. The
@@ -26,8 +26,8 @@ pay for. Shell-only workflows need neither.
 ```bash
 npm install -g @earendil-works/pi-coding-agent   # model runtime
 pi                                                # then /login, pick provider, /exit
-git clone https://github.com/ali-abassi/pi-workflows.git
-cd pi-workflows && ./install.sh
+git clone https://github.com/ali-abassi/pi-graph.git
+cd pi-graph && ./install.sh
 piw doctor                                        # installed piw, not ./bin/piw
 ```
 
@@ -118,9 +118,9 @@ If your steps are deterministic code, use a real orchestrator.
 | [`examples/`](examples/) | Runnable workflows, simplest first |
 | [`AGENTS.md`](AGENTS.md) | Working inside this repo |
 
-`PI_WORKFLOWS_ROOTS` (discovery paths), `PI_WORKFLOWS_HOME`,
-`PI_WORKFLOWS_BIN_DIR`, `PI_WORKFLOWS_PYTHON`, `PI_WORKFLOWS_MODEL`,
-`PI_WORKFLOWS_QA_MODEL`.
+`PI_GRAPH_ROOTS` (discovery paths), `PI_GRAPH_HOME`,
+`PI_GRAPH_BIN_DIR`, `PI_GRAPH_PYTHON`, `PI_GRAPH_MODEL`,
+`PI_GRAPH_QA_MODEL`.
 
 ## Develop
 

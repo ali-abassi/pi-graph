@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pi-workflows"
+name = "pi-graph"
 version = "0.1.0"
 description = "Deterministic YAML workflow graphs for coding agents"
 readme = "README.md"
@@ -17,8 +17,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ali-abassi/pi-workflows"
-Issues = "https://github.com/ali-abassi/pi-workflows/issues"
+Homepage = "https://github.com/ali-abassi/pi-graph"
+Issues = "https://github.com/ali-abassi/pi-graph/issues"
 
 # piw runs from scripts/ via bin/piw rather than as an installed module, so this
 # project is metadata-only: `pip install -e .` resolves dependencies without

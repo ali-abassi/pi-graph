@@ -7,7 +7,7 @@ while [ -L "$script" ]; do
   case "$target" in /*) script=$target ;; *) script=$(dirname -- "$script")/$target ;; esac
 done
 root=$(CDPATH= cd -- "$(dirname -- "$script")/.." && pwd)
-python_bin=${PI_WORKFLOWS_PYTHON:-"$root/.venv/bin/python"}
+python_bin=${PI_GRAPH_PYTHON:-"$root/.venv/bin/python"}
 
 if [ ! -x "$python_bin" ]; then
   python_bin=python3

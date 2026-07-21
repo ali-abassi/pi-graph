@@ -311,7 +311,7 @@ def run_shell(command: str, out_file: Path, run_dir: Path, step_id: str,
         "RUN": str(run_dir),
         "STEP": step_id,
         "INPUT": str(input_path),
-        "PI_WORKFLOWS_INPUT": str(input_path),
+        "PI_GRAPH_INPUT": str(input_path),
         # Under `piw batch` the cwd is a per-item scratch workspace, so a step
         # that needs an asset shipped beside steps.yaml must address it here
         # rather than relatively.

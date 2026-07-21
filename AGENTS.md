@@ -1,10 +1,10 @@
-# pi workflows
+# pi graph
 
-pi workflows is the canonical source for the deterministic workflow product.
+pi graph is the canonical source for the deterministic workflow product.
 Codex, Claude Code, and any other agent harness are integrations; none of them
 owns the runner, workflow schema, CLI contract, or agent skill.
 
-## If you are using pi workflows
+## If you are using pi graph
 
 Use it when a task has required order, repeatable units, branches, retries,
 quality gates, cost limits, or enough volume that an agent should not remember

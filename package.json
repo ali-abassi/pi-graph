@@ -6,11 +6,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ali-abassi/pi-workflows.git"
+    "url": "git+https://github.com/ali-abassi/pi-graph.git"
   },
-  "homepage": "https://github.com/ali-abassi/pi-workflows#readme",
+  "homepage": "https://github.com/ali-abassi/pi-graph#readme",
   "bugs": {
-    "url": "https://github.com/ali-abassi/pi-workflows/issues"
+    "url": "https://github.com/ali-abassi/pi-graph/issues"
   },
   "keywords": [
     "pi-package",
@@ -22,9 +22,9 @@
     "piw": "./bin/piw"
   },
   "pi": {
-    "image": "./docs/assets/pi-workflows-studio.png",
+    "image": "./docs/assets/pi-graph-studio.png",
     "extensions": [
-      "./extensions/pi-workflows.ts"
+      "./extensions/pi-graph.ts"
     ],
     "skills": [
       "./SKILL.md"
@@ -44,7 +44,7 @@
   "scripts": {
     "check": "tsc --noEmit",
     "test:examples": "PY=$([ -x .venv/bin/python ] && echo .venv/bin/python || echo python3); $PY scripts/run_example_suite.py --validate-only",
-    "test:extension": "node --experimental-strip-types --test extensions/pi-workflows.test.mjs",
+    "test:extension": "node --experimental-strip-types --test extensions/pi-graph.test.mjs",
     "test": "PY=$([ -x .venv/bin/python ] && echo .venv/bin/python || echo python3); $PY -m unittest discover -s tests -v && npm run test:extension",
     "verify": "./scripts/check.sh"
   }

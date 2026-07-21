@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to pi workflows are documented here.
+All notable changes to pi graph are documented here.
 
 ## 0.1.0 — 2026-07-19
 

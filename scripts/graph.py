@@ -1,7 +1,7 @@
-"""Pi Workflows — turn a deterministic-workflow steps.yaml into a renderable DAG.
+"""Pi Graph — turn a deterministic-workflow steps.yaml into a renderable DAG.
 
 This module is the visual layer for the engine installed with this product at
-``~/.pi-workflows/scripts/run_steps.py``.
+``~/.pi-graph/scripts/run_steps.py``.
 It does not execute anything; it parses a ``steps.yaml`` into nodes and edges so
 the canvas can draw exactly the graph the runner will execute.
 
