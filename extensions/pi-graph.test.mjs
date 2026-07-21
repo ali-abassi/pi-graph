@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import piWorkflows, { argumentsFor } from "./pi-workflows.ts";
+import piWorkflows, { argumentsFor } from "./pi-graph.ts";
 
 
 test("tool arguments preserve explicit workflow inputs and machine output", () => {
@@ -67,7 +67,7 @@ test("Pi package registers a bounded native tool and throws on CLI failure", asy
     async exec() { return { stdout: "invalid graph", stderr: "", code: 1, killed: false }; },
   };
   piWorkflows(pi);
-  assert.equal(tool.name, "pi_workflows");
+  assert.equal(tool.name, "pi_graph");
   await assert.rejects(
     tool.execute("id", { action: "validate", workflow: "broken" }, undefined, undefined, { cwd: "/tmp" }),
     /invalid graph/,

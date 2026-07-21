@@ -8,6 +8,6 @@
     "skipLibCheck": true
   },
   "include": [
-    "extensions/pi-workflows.ts"
+    "extensions/pi-graph.ts"
   ]
 }

@@ -1,6 +1,6 @@
 # Node system
 
-Pi Workflows keeps the execution vocabulary deliberately small. A node names
+Pi Graph keeps the execution vocabulary deliberately small. A node names
 how work executes; fields around it compose control flow, verification,
 recovery, and evidence. This avoids an ecosystem of differently named nodes
 that all hide the same model call.
@@ -17,7 +17,7 @@ that all hide the same model call.
 
 `tools:` is a Pi tool-selection boundary, not an operating-system sandbox.
 `agent: true` runs a normal Pi agent loop. Both inherit the permissions of the
-process that launched Pi Workflows.
+process that launched Pi Graph.
 
 ## Composable capabilities
 

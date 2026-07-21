@@ -26,4 +26,4 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: ./scripts/check.sh
         env:
-          PI_WORKFLOWS_PYTHON: python
+          PI_GRAPH_PYTHON: python

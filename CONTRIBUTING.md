@@ -1,6 +1,6 @@
 # Contributing
 
-Pi Workflows welcomes focused fixes, examples, documentation, and workflow
+Pi Graph welcomes focused fixes, examples, documentation, and workflow
 runtime improvements.
 
 ## Setup

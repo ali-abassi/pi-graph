@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/ali-abassi/pi-workflows/main/schemas/workflow.schema.json",
-  "title": "Pi Workflows v1",
-  "description": "The portable steps.yaml contract executed by Pi Workflows.",
+  "$id": "https://raw.githubusercontent.com/ali-abassi/pi-graph/main/schemas/workflow.schema.json",
+  "title": "Pi Graph v1",
+  "description": "The portable steps.yaml contract executed by Pi Graph.",
   "type": "object",
   "required": ["version", "workflow", "steps"],
   "additionalProperties": false,
@@ -359,7 +359,7 @@
       }
     }
   },
-  "x-pi-workflows": {
+  "x-pi-graph": {
     "canonicalFile": "steps.yaml",
     "nodeKinds": [
       {
@@ -464,7 +464,7 @@
       },
       "commandAndGate": {
         "$INPUT": "Absolute path to input.txt in the run directory.",
-        "$PI_WORKFLOWS_INPUT": "Alias of $INPUT.",
+        "$PI_GRAPH_INPUT": "Alias of $INPUT.",
         "$OUT": "Absolute path of this node's primary output artifact.",
         "$RUN": "Absolute path to the run directory.",
         "$STEP": "Current node id."

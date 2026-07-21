@@ -1,6 +1,6 @@
 # Workflow format
 
-Pi Workflows uses one human-authored file: `steps.yaml`. YAML is the canonical
+Pi Graph uses one human-authored file: `steps.yaml`. YAML is the canonical
 syntax because comments and multiline prompts stay readable. The complete
 machine contract is [`schemas/workflow.schema.json`](../schemas/workflow.schema.json),
 which editors and agents can inspect with `piw schema --json`.
@@ -83,7 +83,7 @@ Command nodes and gates receive:
 | Environment variable | Meaning |
 |---|---|
 | `$INPUT` | Path to immutable `input.txt` |
-| `$PI_WORKFLOWS_INPUT` | Alias of `$INPUT` |
+| `$PI_GRAPH_INPUT` | Alias of `$INPUT` |
 | `$OUT` | Path where this node's primary artifact belongs |
 | `$RUN` | Absolute run-directory path |
 | `$STEP` | Current node id |

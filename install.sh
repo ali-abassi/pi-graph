@@ -2,28 +2,28 @@
 set -eu
 
 source_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-install_dir=${PI_WORKFLOWS_HOME:-"$HOME/.pi-workflows"}
-python_bin=${PI_WORKFLOWS_PYTHON_BOOTSTRAP:-python3}
-user_bin=${PI_WORKFLOWS_BIN_DIR:-"$HOME/.local/bin"}
-keep_backups=${PI_WORKFLOWS_KEEP_BACKUPS:-2}
+install_dir=${PI_GRAPH_HOME:-"$HOME/.pi-graph"}
+python_bin=${PI_GRAPH_PYTHON_BOOTSTRAP:-python3}
+user_bin=${PI_GRAPH_BIN_DIR:-"$HOME/.local/bin"}
+keep_backups=${PI_GRAPH_KEEP_BACKUPS:-2}
 
-codex_skill="$HOME/.agents/skills/pi-workflows"
-claude_skill="$HOME/.claude/skills/pi-workflows"
-pi_skill="$HOME/.pi/agent/skills/pi-workflows"
+codex_skill="$HOME/.agents/skills/pi-graph"
+claude_skill="$HOME/.claude/skills/pi-graph"
+pi_skill="$HOME/.pi/agent/skills/pi-graph"
 
 usage() {
   cat <<EOF
 Usage: ./install.sh [--uninstall] [--help]
 
-Installs pi workflows to $install_dir, exposes piw from $user_bin, and links
+Installs pi graph to $install_dir, exposes piw from $user_bin, and links
 the skill for Codex and Claude Code. With Pi on PATH it also registers the
 local Pi package, which writes to ~/.pi/agent/settings.json.
 
 Environment:
-  PI_WORKFLOWS_HOME              install location (default ~/.pi-workflows)
-  PI_WORKFLOWS_BIN_DIR           where piw is linked (default ~/.local/bin)
-  PI_WORKFLOWS_PYTHON_BOOTSTRAP  python used to build the venv (default python3)
-  PI_WORKFLOWS_KEEP_BACKUPS      previous installs to retain (default 2)
+  PI_GRAPH_HOME              install location (default ~/.pi-graph)
+  PI_GRAPH_BIN_DIR           where piw is linked (default ~/.local/bin)
+  PI_GRAPH_PYTHON_BOOTSTRAP  python used to build the venv (default python3)
+  PI_GRAPH_KEEP_BACKUPS      previous installs to retain (default 2)
 EOF
 }
 
@@ -34,7 +34,7 @@ unlink_ours() {
     rm -f "$name"
     printf 'removed %s\n' "$name"
   elif [ -e "$name" ]; then
-    printf 'left in place (not a pi workflows symlink): %s\n' "$name" >&2
+    printf 'left in place (not a pi graph symlink): %s\n' "$name" >&2
   fi
 }
 
@@ -60,7 +60,7 @@ uninstall() {
     rm -rf "$old"
     printf 'removed %s\n' "$old"
   done
-  printf 'pi workflows uninstalled.\n'
+  printf 'pi graph uninstalled.\n'
 }
 
 case "${1:-}" in
@@ -71,20 +71,20 @@ case "${1:-}" in
 esac
 
 command -v "$python_bin" >/dev/null 2>&1 || {
-  printf 'pi workflows cannot find Python: %s\n' "$python_bin" >&2
+  printf 'pi graph cannot find Python: %s\n' "$python_bin" >&2
   exit 1
 }
 
 # Check the version here rather than letting `piw doctor` report it after a
 # clean-looking install.
 "$python_bin" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' || {
-  printf 'pi workflows needs Python 3.10 or newer; %s is %s\n' \
+  printf 'pi graph needs Python 3.10 or newer; %s is %s\n' \
     "$python_bin" "$("$python_bin" -c 'import sys; print(sys.version.split()[0])')" >&2
-  printf 'Set PI_WORKFLOWS_PYTHON_BOOTSTRAP to a newer interpreter.\n' >&2
+  printf 'Set PI_GRAPH_PYTHON_BOOTSTRAP to a newer interpreter.\n' >&2
   exit 1
 }
 
-stage=$(mktemp -d "${TMPDIR:-/tmp}/pi-workflows.XXXXXX")
+stage=$(mktemp -d "${TMPDIR:-/tmp}/pi-graph.XXXXXX")
 cleanup() { [ ! -d "$stage" ] || find "$stage" -depth -delete; }
 trap cleanup EXIT HUP INT TERM
 
@@ -160,7 +160,7 @@ fi
 # Old installs are kept for rollback, not forever. This used to grow without
 # bound; 22 backups was ~490 MB on one machine.
 # Glob directly and quote: `$(ls -dt ...)` word-splits, so a space anywhere in
-# the path (PI_WORKFLOWS_HOME is user-settable) shattered each path into
+# the path (PI_GRAPH_HOME is user-settable) shattered each path into
 # fragments that were then rm -rf'd — destroying unrelated directories AND the
 # backups this is supposed to retain. Timestamps sort chronologically, so the
 # newest are last; keep the tail.
@@ -181,7 +181,7 @@ done
 
 trap cleanup EXIT HUP INT TERM
 
-printf '\npi workflows installed: %s\n' "$install_dir"
+printf '\npi graph installed: %s\n' "$install_dir"
 printf 'CLI: %s\n' "$user_bin/piw"
 printf 'Codex skill: %s\n' "$codex_skill"
 printf 'Claude Code skill: %s\n' "$claude_skill"

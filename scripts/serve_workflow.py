@@ -323,7 +323,7 @@ def main() -> int:
             print(f"error: cannot read input file: {error}", file=sys.stderr)
             return 2
 
-    temporary = tempfile.TemporaryDirectory(prefix="pi-workflows-ui-")
+    temporary = tempfile.TemporaryDirectory(prefix="pi-graph-ui-")
     CFG.update({
         "steps": steps,
         "graph": graph,
@@ -335,7 +335,7 @@ def main() -> int:
     })
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     url = f"http://127.0.0.1:{server.server_address[1]}"
-    print(f"Pi Workflows Studio · {graph['workflow']} · {url}", flush=True)
+    print(f"Pi Graph Studio · {graph['workflow']} · {url}", flush=True)
     print(f"source of truth: {steps}", flush=True)
     if args.open:
         webbrowser.open(url)

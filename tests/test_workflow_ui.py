@@ -34,7 +34,7 @@ class WorkflowUiTests(unittest.TestCase):
                     "gate": 'test -s "$OUT"',
                 }],
             }, sort_keys=False), encoding="utf-8")
-            env = {**os.environ, "PI_WORKFLOWS_ROOTS": raw, "LOOPS_PORT": "1"}
+            env = {**os.environ, "PI_GRAPH_ROOTS": raw, "LOOPS_PORT": "1"}
             process = subprocess.Popen(
                 [sys.executable, str(SERVER), str(steps), "--port", "0"],
                 stdout=subprocess.PIPE,
@@ -50,7 +50,7 @@ class WorkflowUiTests(unittest.TestCase):
                 base = match.group(1)
                 with urllib.request.urlopen(base, timeout=5) as response:
                     page = response.read().decode()
-                    self.assertIn("Pi Workflows Studio", page)
+                    self.assertIn("Pi Graph Studio", page)
                     self.assertIn("ui-proof", page)
                     self.assertIn("Content-Security-Policy", response.headers)
                 token = json.loads(re.search(
@@ -110,7 +110,7 @@ class WorkflowUiTests(unittest.TestCase):
                 "input": {"required": True, "description": "Name"},
                 "steps": [{"id": "copy", "cmd": 'cat "$INPUT"', "gate": 'test -s "$OUT"'}],
             }, sort_keys=False), encoding="utf-8")
-            env = {**os.environ, "PI_WORKFLOWS_ROOTS": raw, "LOOPS_PORT": "1"}
+            env = {**os.environ, "PI_GRAPH_ROOTS": raw, "LOOPS_PORT": "1"}
             process = subprocess.Popen(
                 [sys.executable, str(SERVER), str(steps), "--port", "0"],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,

@@ -99,7 +99,7 @@ class ModelPinTests(unittest.TestCase):
             environment = {
                 "PATH": f"{binary_dir}:/usr/bin:/bin",
                 "HOME": str(root),
-                "PI_WORKFLOWS_ROOTS": str(root),
+                "PI_GRAPH_ROOTS": str(root),
             }
             return subprocess.run(
                 [sys.executable, str(CLI), "run", str(steps), "--input", "hello", "--json"],
@@ -201,7 +201,7 @@ class ShippedExampleTests(unittest.TestCase):
             result = subprocess.run(
                 [sys.executable, str(CLI), "validate", str(steps), "--json"],
                 capture_output=True, text=True, timeout=120,
-                env={**__import__("os").environ, "PI_WORKFLOWS_ROOTS": str(root)},
+                env={**__import__("os").environ, "PI_GRAPH_ROOTS": str(root)},
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -219,7 +219,7 @@ class InspectionTests(unittest.TestCase):
                 "steps": [{"id": "a", "cmd": 'echo hi > "$OUT"',
                            "gate": "grep -q IMPOSSIBLE \"$OUT\""}],
             }, sort_keys=False), encoding="utf-8")
-            environment = {**_os.environ, "PI_WORKFLOWS_ROOTS": str(root)}
+            environment = {**_os.environ, "PI_GRAPH_ROOTS": str(root)}
             subprocess.run([sys.executable, str(CLI), "run", str(steps)],
                            capture_output=True, text=True, env=environment, timeout=120)
             run_id = sorted((root / "runs").iterdir())[-1].name
@@ -249,7 +249,7 @@ class ValidateHintTests(unittest.TestCase):
             result = subprocess.run(
                 [sys.executable, str(CLI), "validate", str(steps)],
                 capture_output=True, text=True, timeout=120,
-                env={**_os.environ, "PI_WORKFLOWS_ROOTS": str(root)},
+                env={**_os.environ, "PI_GRAPH_ROOTS": str(root)},
             )
             self.assertIn("--input-file", result.stdout, result.stdout + result.stderr)
 
@@ -277,7 +277,7 @@ class BudgetAndLedgerTests(unittest.TestCase):
                      "gate": 'test -s "$OUT"'},
                 ],
             }, sort_keys=False), encoding="utf-8")
-            environment = {**_os.environ, "PI_WORKFLOWS_ROOTS": str(root)}
+            environment = {**_os.environ, "PI_GRAPH_ROOTS": str(root)}
             runner = SCRIPTS / "run_steps.py"
             subprocess.run([sys.executable, str(runner), str(steps)],
                            capture_output=True, text=True, env=environment, timeout=120)
@@ -305,7 +305,7 @@ class StepIdTests(unittest.TestCase):
             result = subprocess.run(
                 [sys.executable, str(SCRIPTS / "run_steps.py"), str(steps)],
                 capture_output=True, text=True, timeout=120,
-                env={**_os.environ, "PI_WORKFLOWS_ROOTS": str(root)},
+                env={**_os.environ, "PI_GRAPH_ROOTS": str(root)},
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("must match", result.stdout + result.stderr)

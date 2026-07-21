@@ -2,8 +2,8 @@
 
 ## Pi
 
-Pi Workflows is a Pi package with one declared extension and one skill. The
-extension registers `pi_workflows`; it never overrides a built-in tool. It uses
+Pi Graph is a Pi package with one declared extension and one skill. The
+extension registers `pi_graph`; it never overrides a built-in tool. It uses
 Pi's `exec` API, forwards cancellation, throws on non-zero CLI exit, and returns
 bounded text plus structured command details.
 
@@ -30,13 +30,13 @@ second runner or a second workflow schema.
 
 ## Codex
 
-The installer links this repository into `~/.agents/skills/pi-workflows`.
+The installer links this repository into `~/.agents/skills/pi-graph`.
 Codex loads `SKILL.md` progressively and invokes `piw`; the workflow remains
 portable because no Codex-only prompt or session state is embedded in YAML.
 
 ## Claude Code
 
-The installer links this repository into `~/.claude/skills/pi-workflows`.
+The installer links this repository into `~/.claude/skills/pi-graph`.
 Claude Code follows supported skill-directory symlinks. Deterministic lifecycle
 hooks remain optional; workflow control flow stays in the runner, not in a hook.
 
@@ -49,7 +49,7 @@ is missing; every other command, including `piw batch`, works without one.
 
 An adapter is expected to provide a localhost API, a graph canvas, live run
 events, and durable triggers. It resolves the installed runner and returns the
-event path for a started run. pi workflows falls back to a direct run when the
+event path for a started run. pi graph falls back to a direct run when the
 adapter is absent or resolves a different workflow path.
 
 ## Compatibility

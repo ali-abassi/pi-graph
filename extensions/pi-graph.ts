@@ -21,7 +21,7 @@ async function boundedOutput(output: string) {
   const truncation = truncateHead(output, { maxLines: TOOL_MAX_LINES, maxBytes: TOOL_MAX_BYTES });
   if (!truncation.truncated) return { text: truncation.content, truncation };
 
-  const directory = await mkdtemp(join(tmpdir(), "pi-workflows-output-"));
+  const directory = await mkdtemp(join(tmpdir(), "pi-graph-output-"));
   const fullOutputPath = join(directory, "output.txt");
   await withFileMutationQueue(fullOutputPath, () => writeFile(fullOutputPath, output, "utf8"));
   const omittedLines = truncation.totalLines - truncation.outputLines;
@@ -35,7 +35,7 @@ async function boundedOutput(output: string) {
 
 export function argumentsFor(params: Record<string, unknown>): string[] {
   const action = String(params.action ?? "list");
-  if (!(ACTIONS as readonly string[]).includes(action)) throw new Error(`unsupported Pi Workflows action: ${action}`);
+  if (!(ACTIONS as readonly string[]).includes(action)) throw new Error(`unsupported Pi Graph action: ${action}`);
   const command = action === "list" ? "ls" : action;
   const args = [command];
   if (!["ls", "doctor", "schema", "actions", "create", "batch-status", "batch-cancel", "automations", "automation"].includes(command)) {
@@ -167,18 +167,18 @@ export function argumentsFor(params: Record<string, unknown>): string[] {
 
 export default function piWorkflows(pi: ExtensionAPI) {
   pi.registerTool({
-    name: "pi_workflows",
-    label: "Pi Workflows",
+    name: "pi_graph",
+    label: "Pi Graph",
     description: `Create, run, inspect, QA, compare, evaluate, and optimize deterministic workflow graphs. Inspect whole runs or individual nodes, configure models and judges, compare cost/tokens/latency, and execute one graph over large corpora. Output is limited to ${TOOL_MAX_LINES} lines or ${formatSize(TOOL_MAX_BYTES)}; complete truncated output is saved to a temporary file.`,
     promptSnippet: "Run deterministic workflows; inspect, QA, compare, and optimize every node",
     promptGuidelines: [
-      "Use pi_workflows validate before pi_workflows run; validation is free and failed validation must block paid execution.",
+      "Use pi_graph validate before pi_graph run; validation is free and failed validation must block paid execution.",
       "Use the actions catalog before authoring common extraction, review, research, coding, JSONL, or exact-item patterns; add expands templates into ordinary inspectable nodes.",
       "After every run, use detail for the whole trace or one step; use compare before promoting a model, prompt, reasoning, or judge change.",
       "Use set to configure a node and its independent judge, run with node to force it fresh, and eval to compare models over a fixed corpus.",
       "For many inputs, canary with batch limit first, then use batch with detach and requireAll; poll batch-status until every item has a complete execution contract.",
-      "Use pi_workflows schedule only after validation and one successful manual smoke; scheduling validates again and fails closed.",
-      "Use pi_workflows only when a repeatable graph earns its complexity; use ordinary tools for a one-step task.",
+      "Use pi_graph schedule only after validation and one successful manual smoke; scheduling validates again and fails closed.",
+      "Use pi_graph only when a repeatable graph earns its complexity; use ordinary tools for a one-step task.",
     ],
     parameters: Type.Object({
       action: StringEnum(ACTIONS),

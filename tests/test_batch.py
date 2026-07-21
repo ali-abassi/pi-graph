@@ -38,7 +38,7 @@ class BatchTests(unittest.TestCase):
         env = {
             **os.environ,
             "LOOPS_PORT": "1",
-            "PI_WORKFLOWS_STATE_DIR": str(Path(tempfile.gettempdir()) / "piw-batch-test-state"),
+            "PI_GRAPH_STATE_DIR": str(Path(tempfile.gettempdir()) / "piw-batch-test-state"),
             **(env_overrides or {}),
         }
         return subprocess.run(

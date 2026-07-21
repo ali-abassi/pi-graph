@@ -1,1 +1,1 @@
-Prepare Pi Workflows v0.1.1 for a public release.
+Prepare Pi Graph v0.1.1 for a public release.
