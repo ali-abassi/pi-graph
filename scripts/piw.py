@@ -805,6 +805,25 @@ def start_direct(
     return process, events
 
 
+def start_resume_direct(
+    workflow: dict[str, Any], run_dir: Path, force_drift: bool,
+) -> tuple[subprocess.Popen, Path]:
+    events = control.PYGRAPH_EVENTS_DIR / f"resume-{uuid.uuid4().hex[:12]}.jsonl"
+    events.parent.mkdir(parents=True, exist_ok=True)
+    events.touch()
+    command = [
+        sys.executable, str(control.WORKFLOW_RUNNER), str(workflow["path"]),
+        "--events", str(events), "--run-dir", str(run_dir), "--resume",
+    ]
+    if force_drift:
+        command.append("--force-drift")
+    process = subprocess.Popen(
+        command, cwd=workflow["cwd"], stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE, text=True,
+    )
+    return process, events
+
+
 def follow(
     events_path: Path,
     quiet: bool,
@@ -965,6 +984,56 @@ def cmd_run(args) -> int:
             + f" · {money(totals['cost'])} · {totals['tokens']} tok")
         if summary["run_dir"]:
             out(f"run={Path(summary['run_dir']).name}")
+    return 0 if ok else 1
+
+
+# ----------------------------------------------------------------------- resume
+
+
+def cmd_resume(args) -> int:
+    workflow = need(args.workflow)
+    runs = control.list_workflow_runs(
+        workflow["id"], limit=200, runs_dir=workflow.get("runs_dir")
+    )
+    run = matching_run(runs, args.run)
+    if not run:
+        return fail("no matching run (try: piw runs <id>)")
+    process, events_path = start_resume_direct(
+        workflow, Path(run["path"]), args.force_drift
+    )
+    ok, totals = follow(
+        events_path, quiet=args.quiet or args.json,
+        timeout=args.timeout, process=process,
+    )
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+    summary = {
+        "ok": ok,
+        "passed": totals["passed"],
+        "failed": totals["failed"],
+        "cached": totals["cached"],
+        "skipped": totals["skipped"],
+        "cost": round(totals["cost"], 6),
+        "tokens": totals["tokens"],
+        "run_dir": totals["run_dir"] or str(run["path"]),
+        "failed_ids": totals["failed_ids"],
+    }
+    error = str(totals.get("error") or "").strip()
+    if error:
+        summary["error"] = error
+    if args.json:
+        out(json.dumps(summary, separators=(",", ":")))
+    else:
+        if error:
+            for line in error.splitlines():
+                print(f"error: {line}", file=sys.stderr)
+        verdict = "RESUME ok" if ok else "RESUME FAILED"
+        out(f"{verdict} · {totals['passed']} passed"
+            + (f", {totals['failed']} failed" if totals["failed"] else "")
+            + (f", {totals['skipped']} skipped" if totals["skipped"] else ""))
+        out(f"run={Path(summary['run_dir']).name}")
     return 0 if ok else 1
 
 
@@ -1950,6 +2019,14 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("-q", "--quiet", action="store_true", help="summary line only")
     run.add_argument("--timeout", type=float, default=3600, help="seconds to follow the run (default 3600)")
 
+    resume = add("resume", "resume an interrupted durable run")
+    resume.add_argument("run", help="run id or unique substring")
+    resume.add_argument("--force-drift", action="store_true",
+                        help="audit and allow changed workflow source; input remains immutable")
+    resume.add_argument("-q", "--quiet", action="store_true", help="summary line only")
+    resume.add_argument("--timeout", type=float, default=3600,
+                        help="seconds to follow the resume (default 3600)")
+
     ui = add("ui", "open the optional local graph studio")
     ui.add_argument("--input-file", help="prefill the immutable run input")
     ui.add_argument("--output", help="step whose artifact is shown after a run")
@@ -2084,7 +2161,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 COMMANDS = {
-    "ls": cmd_ls, "schema": cmd_schema, "graph": cmd_graph, "validate": cmd_validate, "run": cmd_run,
+    "ls": cmd_ls, "schema": cmd_schema, "graph": cmd_graph, "validate": cmd_validate,
+    "run": cmd_run, "resume": cmd_resume,
     "actions": cmd_actions, "add": cmd_add_action,
     "ui": cmd_ui,
     "runs": cmd_runs, "show": cmd_show, "stats": cmd_stats, "path": cmd_path,

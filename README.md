@@ -41,6 +41,7 @@ macOS/Linux · Python 3.10+ · Pi 0.80.10+ for model nodes ·
 piw create review --action parallel-review              # scaffold a valid graph
 piw validate review/steps.yaml                          # free; no model call
 piw run review/steps.yaml --input-file task.md
+piw resume review/steps.yaml RUN_ID                     # explicit crash recovery
 piw detail review/steps.yaml RUN_ID --step parallel-review-verdict --io
 piw set review/steps.yaml parallel-review-verdict --model MODEL --thinking low
 piw run review/steps.yaml --input-file task.md --node parallel-review-verdict
@@ -73,12 +74,47 @@ machine-readable form.** That is the authoritative reference, not this file.
 |---|---|
 | `ls` `graph` `schema` `actions` | Inspect what exists |
 | `create` `add` `set` `validate` | Author and check, without spending |
-| `run` `batch` `batch-status` `batch-cancel` | Execute |
+| `run` `resume` `batch` `batch-status` `batch-cancel` | Execute and recover |
 | `detail` `runs` `show` `compare` `stats` | Evidence after the fact |
 | `eval` `reports` | Compare models over a corpus, judges fixed |
 | `ui` `doctor` `path` | Studio, health, locations |
 
+Every new normal run is a self-contained local bundle: an exact immutable
+`workflow.yaml`, SHA-256 workflow/input identity, atomic `manifest.json` and
+`state.json` projections, a sequenced `trace.jsonl`, and the existing root
+artifacts/ledger/log. A local advisory lock rejects a second writer. If the
+runner dies, `piw resume WORKFLOW RUN_ID` verifies the committed boundary and
+reruns only unfinished nodes; changed workflow source requires the explicit,
+audited `--force-drift`, which executes the reviewed current source while retaining
+the original snapshot as evidence. Changed or tampered input is never forceable.
+Legacy runs remain readable and support surgical `--from`, but cannot claim a
+durable crash boundary. These guarantees target local macOS/Linux filesystems,
+not network filesystems or exactly-once external effects.
+
 `--json` on every inspection command. Non-zero exit on failure.
+
+## Studio: the evidence is the visualization
+
+```bash
+piw ui review/steps.yaml --input-file task.md
+```
+
+Studio is a local evidence workspace over the same canonical runner—not a
+second engine. It discovers durable history after restart, renders each run's
+**frozen** workflow graph, and synchronizes visible text status, terminal
+progress, manifest provenance, committed trace events, and per-node
+output/stderr/attempt evidence. Select a run or node, filter the graph and
+trace, use keyboard navigation, and copy the exact resume command for an
+eligible interrupted run. Legacy and corrupt/incomplete evidence stay visible
+as explicitly legacy or degraded; reads never repair or mutate a bundle.
+
+The interface remains usable at `390×844`, bounds run lists, trace events,
+files, and responses, and preserves the loopback Host/token defenses. The graph
+is still proof—not an editor or browser-side scheduler.
+
+<p align="center">
+  <img src="docs/assets/pi-graph-studio.png" alt="Pi Graph Studio showing durable run history, frozen proof graph, committed trace, and node evidence" width="100%">
+</p>
 
 ## Scale
 

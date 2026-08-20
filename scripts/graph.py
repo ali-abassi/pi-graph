@@ -103,6 +103,9 @@ def build_deps(steps: list[dict[str, Any]]) -> tuple[dict[str, set[str]], dict[s
         elif index:
             inferred.add(ids[index - 1])
 
+        if isinstance(step.get("from"), str):
+            found.add(step["from"])
+
         # {prev} pulls in the previous step's artifact regardless of needs.
         prompt = step.get("prompt") or ""
         if prompt and "{prev}" in prompt and index:
@@ -181,7 +184,9 @@ def _read(path: Path, limit: int = MAX_BODY) -> tuple[str, bool]:
     return _truncate(text) if len(text) > limit else (text, False)
 
 
-def run_detail(steps_path: Path, run_dir: Path) -> dict[str, Any]:
+def run_detail(steps_path: Path, run_dir: Path, *, resolve_prompts: bool = True,
+               parsed_graph: dict[str, Any] | None = None,
+               read_file: Any = None) -> dict[str, Any]:
     """Everything known about one run, assembled for a run-detail view.
 
     The runner already leaves a rich trail on disk — per-step output and stderr,
@@ -192,19 +197,22 @@ def run_detail(steps_path: Path, run_dir: Path) -> dict[str, Any]:
     if not run_dir.is_dir():
         raise WorkflowParseError(f"no such run: {run_dir}")
 
-    graph = parse_steps(steps_path)
+    graph = parsed_graph or parse_steps(steps_path)
     by_id = {node["id"]: node for node in graph["nodes"]}
+    safe_mode = read_file is not None
+    reader = read_file or _read
 
     ledger: dict[str, dict[str, Any]] = {}
     try:
-        entries = json.loads((run_dir / "ledger.json").read_text(encoding="utf-8"))
+        ledger_text, _ = reader(run_dir / "ledger.json", 200_000)
+        entries = json.loads(ledger_text or "[]")
         for entry in entries if isinstance(entries, list) else []:
             ledger[entry.get("id")] = entry
     except (OSError, json.JSONDecodeError, TypeError):
         pass
 
     log_lines: list[dict[str, str]] = []
-    log_text, _ = _read(run_dir / "log.md", 200_000)
+    log_text, _ = reader(run_dir / "log.md", 200_000)
     for line in log_text.splitlines():
         match = LOG_LINE_RE.match(line)
         if match:
@@ -214,15 +222,15 @@ def run_detail(steps_path: Path, run_dir: Path) -> dict[str, Any]:
     for node in graph["nodes"]:
         sid = node["id"]
         entry = ledger.get(sid) or {}
-        output, output_cut = _read(run_dir / f"{sid}.md")
-        stderr, _ = _read(run_dir / f"{sid}.stderr", 4000)
+        output, output_cut = reader(run_dir / f"{sid}.md", 8000)
+        stderr, _ = reader(run_dir / f"{sid}.stderr", 4000)
 
         # Rejected judge attempts are snapshotted as <id>.aN.md, the judge's own
         # report as <id>.judgeN.md — together they are the revise-loop evidence.
         attempts = []
         for number in range(1, 12):
-            body, cut = _read(run_dir / f"{sid}.a{number}.md")
-            report, _ = _read(run_dir / f"{sid}.judge{number}.md", 4000)
+            body, cut = reader(run_dir / f"{sid}.a{number}.md", 8000)
+            report, _ = reader(run_dir / f"{sid}.judge{number}.md", 4000)
             if not body and not report:
                 continue
             # The runner snapshots <id>.aN.md only for attempts that FAILED, so a
@@ -234,20 +242,23 @@ def run_detail(steps_path: Path, run_dir: Path) -> dict[str, Any]:
 
         if sid == QA_NODE_ID:
             # QA is not a ledger step; its verdict lives in qa.md.
-            verdict, _ = _read(run_dir / "qa.md", 20_000)
+            verdict, _ = reader(run_dir / "qa.md", 20_000)
             status = ("passed" if '"verdict"' in verdict and '"pass"' in verdict
                       else "failed" if verdict.strip() else "not_run")
         elif sid in ledger:
             status = "cached" if entry.get("cached") else ("passed" if entry.get("passed") else "failed")
-        elif (run_dir / f"{sid}.md").exists():
+        elif not safe_mode and (run_dir / f"{sid}.md").exists():
             status = "passed"
         else:
             status = "not_run"
 
-        try:
-            resolved = resolve_prompt(steps_path, run_dir, sid)["resolved"] if not node.get("synthetic") else ""
-        except (WorkflowParseError, OSError):
-            resolved = ""
+        if resolve_prompts:
+            try:
+                resolved = resolve_prompt(steps_path, run_dir, sid)["resolved"] if not node.get("synthetic") else ""
+            except (WorkflowParseError, OSError):
+                resolved = ""
+        else:
+            resolved, _ = reader(run_dir / f"{sid}.sent.md", 8000)
 
         steps.append({
             "id": sid,
@@ -269,26 +280,27 @@ def run_detail(steps_path: Path, run_dir: Path) -> dict[str, Any]:
             "output_truncated": output_cut,
             "stderr": stderr,
             "judge_attempts": attempts,
-            "previews": _previews(node, run_dir, steps_path.parent),
+            "previews": [] if safe_mode else _previews(node, run_dir, steps_path.parent),
             # Recorded by the runner so inspection can say why a node failed
             # instead of leaving the reason in log.md.
             "failure": entry.get("failure", ""),
             "failure_kind": entry.get("failure_kind", ""),
         })
 
-    qa_text, _ = _read(run_dir / "qa.md", 20_000)
+    qa_text, _ = reader(run_dir / "qa.md", 20_000)
     commits = []
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(run_dir), "log", "--format=%h\x1f%s"],
-            capture_output=True, text=True, timeout=5, check=False,
-        )
-        for line in result.stdout.splitlines():
-            sha, _, message = line.partition("\x1f")
-            if sha:
-                commits.append({"sha": sha, "message": message})
-    except (OSError, subprocess.SubprocessError):
-        pass
+    if not safe_mode:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(run_dir), "log", "--format=%h\x1f%s"],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+            for line in result.stdout.splitlines():
+                sha, _, message = line.partition("\x1f")
+                if sha:
+                    commits.append({"sha": sha, "message": message})
+        except (OSError, subprocess.SubprocessError):
+            pass
 
     total_cost = sum(float(e.get("cost") or 0) for e in ledger.values())
     counts: dict[str, int] = {}
@@ -602,8 +614,14 @@ def append_steps(steps_path: Path, steps: list[dict[str, Any]]) -> None:
 def parse_steps(steps_path: Path) -> dict[str, Any]:
     """Parse a steps.yaml into {nodes, edges} for the canvas."""
     steps_path = Path(steps_path)
+    return parse_steps_text(steps_path.read_text(encoding="utf-8"), steps_path)
+
+
+def parse_steps_text(content: str, steps_path: Path) -> dict[str, Any]:
+    """Parse already-bounded workflow bytes without reopening an evidence path."""
+    steps_path = Path(steps_path)
     try:
-        spec = yaml.safe_load(steps_path.read_text(encoding="utf-8")) or {}
+        spec = yaml.safe_load(content) or {}
     except yaml.YAMLError as error:
         raise WorkflowParseError(f"invalid yaml: {error}") from error
     if not isinstance(spec, dict):

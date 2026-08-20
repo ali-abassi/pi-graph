@@ -134,6 +134,39 @@ paid work and exports one `outputs.jsonl` row per corpus item in original order,
 plus `outputs.manifest.json` with completeness counts and a SHA-256 digest.
 These settings are frozen into the batch manifest and cannot drift on resume.
 
+## Durable normal-run bundles
+
+A new normal run keeps the compatibility artifacts (`<step>.md`, rejected
+attempts, `ledger.json`, `log.md`, `produced/`, and optional UI events) and adds
+an immutable local recovery boundary:
+
+- `workflow.yaml` is the exact source snapshot and is never rewritten.
+- `manifest.json` pins workflow/input SHA-256, execution roots, status, and paths.
+- `state.json` atomically projects run and per-step status plus committed trace sequence.
+- `trace.jsonl` is append-and-fsync before state/manifest commit; resume repairs
+  only a torn final line and drops complete events beyond the committed sequence.
+- `run.lock` permits one local writer. Process death releases the OS lock.
+
+Use `piw resume <workflow> <run>` after interruption. Passed/cached and
+mechanically skipped nodes remain terminal; unfinished nodes rerun fresh. A
+changed workflow source refuses resume unless `--force-drift` records the old
+and new digest, executes the reviewed current source, and preserves the original
+snapshot as evidence. Changed or tampered `input.txt` always refuses. Legacy run
+folders remain readable and retain low-level `--from`, but have no trustworthy
+crash boundary and cannot use `piw resume`.
+
+The contract is for local macOS/Linux filesystems. Shell/model side effects can
+outlive a SIGKILL and are not exactly-once; effectful workflows still require
+idempotency, observation, or human repair before resume.
+
+`piw ui <workflow>` visualizes this same boundary. Its run rail discovers exact
+child run directories; a selected durable run uses its frozen `workflow.yaml`
+for topology, `state.json` for status/progress, `manifest.json` for provenance,
+and only trace events `1..state.trace_seq`. The browser synchronizes graph node,
+committed event, and bounded output/stderr/attempt evidence. Legacy or invalid
+bundles remain visible as `legacy`/`degraded`; the read path never repairs,
+locks, or serves arbitrary run-relative files. Resume is copy-only in Studio.
+
 ## Dependencies, routes, and output contracts
 
 - `needs: [a, b]` waits for both nodes. `needs: []` creates a root node.

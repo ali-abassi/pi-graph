@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pi-graph.run-bundle.v1",
+  "title": "Pi Graph durable run bundle manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "run_id", "workflow", "input", "execution", "status", "created_at", "updated_at", "started_at", "completed_at", "projections"],
+  "properties": {
+    "schema": {"const": "pi-graph.run-bundle.v1"},
+    "run_id": {"type": "string", "minLength": 1},
+    "workflow": {
+      "type": "object", "additionalProperties": false,
+      "required": ["snapshot", "source_path", "sha256", "bytes"],
+      "properties": {
+        "snapshot": {"const": "workflow.yaml"},
+        "source_path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "input": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["path", "sha256", "bytes"],
+          "properties": {
+            "path": {"const": "input.txt"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "bytes": {"type": "integer", "minimum": 0}
+          }
+        }
+      ]
+    },
+    "execution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["cwd", "workflow_dir"],
+      "properties": {
+        "cwd": {"type": "string", "minLength": 1},
+        "workflow_dir": {"type": "string", "minLength": 1}
+      }
+    },
+    "status": {"enum": ["initialized", "running", "interrupted", "failed", "completed"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "started_at": {"type": ["string", "null"], "format": "date-time"},
+    "completed_at": {"type": ["string", "null"], "format": "date-time"},
+    "projections": {
+      "type": "object", "additionalProperties": false,
+      "required": ["ledger", "log", "step_artifacts", "produced", "events"],
+      "properties": {
+        "ledger": {"const": "ledger.json"},
+        "log": {"const": "log.md"},
+        "step_artifacts": {"const": "<step>.md"},
+        "produced": {"const": "produced/"},
+        "events": {"type": ["string", "null"]}
+      }
+    },
+    "drift": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["at", "expected_sha256", "actual_sha256"],
+        "properties": {
+          "at": {"type": "string", "format": "date-time"},
+          "expected_sha256": {"$ref": "#/$defs/sha256"},
+          "actual_sha256": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    }
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

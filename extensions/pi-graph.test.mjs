@@ -12,6 +12,10 @@ test("tool arguments preserve explicit workflow inputs and machine output", () =
     ["run", "triage", "--node", "qa", "--input", "case", "--no-cache", "--json"],
   );
   assert.deepEqual(argumentsFor({ action: "doctor", json: true }), ["doctor", "--json"]);
+  assert.deepEqual(
+    argumentsFor({ action: "resume", workflow: "triage", run: "run-2", forceDrift: true, json: true }),
+    ["resume", "triage", "run-2", "--force-drift", "--json"],
+  );
   assert.deepEqual(argumentsFor({ action: "schema", json: true }), ["schema", "--json"]);
   assert.deepEqual(argumentsFor({ action: "actions", actionId: "parallel-review", json: true }), ["actions", "parallel-review", "--json"]);
   assert.deepEqual(
@@ -50,6 +54,7 @@ test("tool arguments preserve explicit workflow inputs and machine output", () =
   assert.deepEqual(argumentsFor({ action: "schedule", workflow: "triage", daily: "09:00", stopAfter: 3 }), ["schedule", "triage", "--daily", "09:00", "--stop-after", "3"]);
   assert.deepEqual(argumentsFor({ action: "automation", automationAction: "resume", id: "piw-triage" }), ["automation", "resume", "piw-triage"]);
   assert.throws(() => argumentsFor({ action: "run" }), /requires a workflow/);
+  assert.throws(() => argumentsFor({ action: "resume", workflow: "triage" }), /requires a run/);
   assert.throws(() => argumentsFor({ action: "schedule", workflow: "triage" }), /exactly one/);
   assert.throws(() => argumentsFor({ action: "show", workflow: "triage" }), /requires a step/);
   assert.throws(() => argumentsFor({ action: "batch", workflow: "triage" }), /requires an inputs/);

@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-const ACTIONS = ["doctor", "schema", "actions", "add", "list", "create", "graph", "path", "validate", "run", "batch", "batch-status", "batch-cancel", "runs", "detail", "compare", "show", "set", "stats", "eval", "reports", "schedule", "automations", "automation"] as const;
+const ACTIONS = ["doctor", "schema", "actions", "add", "list", "create", "graph", "path", "validate", "run", "resume", "batch", "batch-status", "batch-cancel", "runs", "detail", "compare", "show", "set", "stats", "eval", "reports", "schedule", "automations", "automation"] as const;
 const PIW = fileURLToPath(new URL("../bin/piw", import.meta.url));
 const TOOL_MAX_LINES = 500;
 const TOOL_MAX_BYTES = 24 * 1024;
@@ -98,6 +98,12 @@ export function argumentsFor(params: Record<string, unknown>): string[] {
     if (params.judgeKeepBest === true) args.push("--judge-keep-best");
     if (params.judgeKeepBest === false) args.push("--no-judge-keep-best");
     if (params.clearJudge === true) args.push("--clear-judge");
+  }
+  if (command === "resume") {
+    const run = typeof params.run === "string" ? params.run.trim() : "";
+    if (!run) throw new Error("resume requires a run id or unique substring");
+    args.push(run);
+    if (params.forceDrift === true) args.push("--force-drift");
   }
   if (command === "run") {
     if (typeof params.node === "string" && params.node.trim()) args.push("--node", params.node.trim());
@@ -193,6 +199,7 @@ export default function piWorkflows(pi: ExtensionAPI) {
       needs: Type.Optional(Type.String({ maxLength: 2_000 })),
       step: Type.Optional(Type.String({ maxLength: 200 })),
       run: Type.Optional(Type.String({ maxLength: 200 })),
+      forceDrift: Type.Optional(Type.Boolean()),
       baselineRun: Type.Optional(Type.String({ maxLength: 200 })),
       candidateRun: Type.Optional(Type.String({ maxLength: 200 })),
       io: Type.Optional(Type.Boolean()),

@@ -76,6 +76,9 @@ from pathlib import Path
 
 import yaml
 
+from run_bundle import (BOOTSTRAP_NAME, BundleError, MANIFEST_NAME, RunBundle,
+                        atomic_write_json, sha256_bytes)
+
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "workflow.schema.json"
 
 PI_BASE = [
@@ -88,6 +91,7 @@ VERDICT_RE = re.compile(r'"verdict"\s*:\s*"(pass|fail)"')
 STEP_REF_RE = re.compile(r"\{step\.([A-Za-z0-9_-]+)\}")
 PLACEHOLDER_RE = re.compile(r"\{(run|input|prev|step\.[A-Za-z0-9_-]+)\}")
 LOG_LOCK = threading.Lock()
+ACTIVE_BUNDLE: RunBundle | None = None
 
 
 def validate_workflow_contract(spec: object, steps_file: Path) -> dict:
@@ -462,8 +466,12 @@ def run_qa(spec: dict, ids: list[str], run_dir: Path, cwd: Path) -> tuple[bool, 
 def verify_run(spec: dict, steps: list[dict], run_dir: Path, cwd: Path) -> int:
     git_commit(run_dir, "operator edits before verify")
     failures: list[str] = []
+    log_text = (run_dir / "log.md").read_text() if (run_dir / "log.md").exists() else ""
+    skipped = set(re.findall(r"(?:^|\n).*? ([A-Za-z0-9_-]+): skipped \(", log_text))
     for step in steps:
         sid = step["id"]
+        if sid in skipped:
+            continue  # a recorded branch skip is a successful terminal state without an artifact
         out_file = run_dir / f"{sid}.md"
         if not out_file.exists():
             failures.append(f"{sid}: missing artifact {out_file.name}")
@@ -478,10 +486,10 @@ def verify_run(spec: dict, steps: list[dict], run_dir: Path, cwd: Path) -> int:
             if rc != 0:
                 failures.append(f"{sid}: gate re-run failed (exit {rc}): "
                                 f"{detail[-500:]}".rstrip())
-    log_text = (run_dir / "log.md").read_text() if (run_dir / "log.md").exists() else ""
     if "run complete" not in log_text:
         failures.append("log.md: missing 'run complete' marker (run never finished)")
-    missing = [s["id"] for s in steps if f" {s['id']} " not in log_text]
+    missing = [s["id"] for s in steps
+               if f" {s['id']} " not in log_text and f" {s['id']}: skipped" not in log_text]
     if missing:
         failures.append(f"log.md: no execution record for step(s): {', '.join(missing)}")
     log(run_dir, f"verify: {len(steps)} step(s) checked · "
@@ -499,10 +507,11 @@ def verify_run(spec: dict, steps: list[dict], run_dir: Path, cwd: Path) -> int:
 class Runner:
     def __init__(self, spec: dict, steps: list[dict], run_dir: Path, cwd: Path,
                  cache_dir: Path | None, regen: set[str], prev_map: dict[str, str | None],
-                 workflow_dir: Path | None = None):
+                 workflow_dir: Path | None = None, bundle: RunBundle | None = None):
         self.spec, self.steps, self.run_dir, self.cwd = spec, steps, run_dir, cwd
         self.workflow_dir = workflow_dir or cwd
         self.cache_dir, self.regen, self.prev_map = cache_dir, regen, prev_map
+        self.bundle = bundle
         self.ledger: list[dict] = []
         self.ledger_lock = threading.Lock()
 
@@ -525,6 +534,8 @@ class Runner:
         entry = {"id": sid, "model": None if step.get("cmd") else step.get("model", self.spec.get("model")),
                  "cached": False, "attempts": 0, "passed": False}
         emit("step_start", id=sid, model=entry["model"], max_attempts=attempts)
+        if self.bundle:
+            self.bundle.record("step_started", step_id=sid, step_status="running")
 
         prev_id = self.prev_map.get(sid)
         prev_out = self.run_dir / f"{prev_id}.md" if prev_id else None
@@ -549,6 +560,9 @@ class Runner:
                         entry.update(cached=True, passed=True, seconds=round(time.monotonic() - t_start, 1), **usage_acc)
                         self.record(entry)
                         emit("step_cached", id=sid, key=key[:8], seconds=entry["seconds"])
+                        if self.bundle:
+                            self.bundle.record("step_cached", step_id=sid, step_status="cached",
+                                               payload={"key": key[:8]})
                         return True
                     log(self.run_dir, f"{sid}: cache hit failed gate — regenerating")
             elif self.cache_dir:
@@ -562,6 +576,12 @@ class Runner:
             t0 = time.monotonic()
             failure = ""
             failure_kind = ""
+            # Each attempt owns a fresh artifact. A failed command may have
+            # written a plausible $OUT before exiting; carrying those bytes
+            # into the next attempt lets a later no-output success pass a gate
+            # against rejected evidence.
+            if out_file.exists():
+                out_file.unlink()
             emit("step_attempt", id=sid, attempt=attempt, max_attempts=attempts)
             if step.get("cmd"):
                 limit = step.get("timeout", 900)
@@ -658,12 +678,13 @@ class Runner:
                                   f"({failure_kind or 'unknown_failure'})")
                 if delay:
                     time.sleep(delay)
-            if attempt < attempts and base_prompt is not None:
-                if out_file.exists():  # keep the rejected attempt diffable
-                    (self.run_dir / f"{sid}.a{attempt}.md").write_text(out_file.read_text())
-                prompt = (base_prompt
-                          + f"\n\nPrevious attempt failed verification.\nFailure: {failure}\n"
-                          + "Fix the problem and produce the corrected output in full.")
+            if attempt < attempts:
+                if out_file.exists():  # keep every rejected attempt diffable
+                    shutil.copyfile(out_file, self.run_dir / f"{sid}.a{attempt}.md")
+                if base_prompt is not None:
+                    prompt = (base_prompt
+                              + f"\n\nPrevious attempt failed verification.\nFailure: {failure}\n"
+                              + "Fix the problem and produce the corrected output in full.")
         if not passed and judge and judge.get("keep_best") and best_text is not None:
             out_file.write_text(best_text)
             log(self.run_dir, f"{sid}: below target after {attempts} iter(s), keeping best "
@@ -691,6 +712,12 @@ class Runner:
              cost=usage_acc["cost"], total=usage_acc["total"],
              input=usage_acc["input"], output=usage_acc["output"],
              failure=entry.get("failure", ""), failure_kind=entry.get("failure_kind", ""))
+        if self.bundle:
+            self.bundle.record(
+                "step_finished", step_id=sid, step_status="passed" if passed else "failed",
+                payload={"attempts": entry["attempts"], "failure": entry.get("failure", ""),
+                         "failure_kind": entry.get("failure_kind", "")},
+            )
         return passed
 
 
@@ -970,6 +997,8 @@ def build_deps(steps: list[dict]) -> tuple[dict[str, set[str]], dict[str, str | 
             d |= set(step.get("needs") or [])
         elif i:
             d.add(ids[i - 1])
+        if isinstance(step.get("from"), str):
+            d.add(step["from"])
         if step.get("prompt") and "{prev}" in step["prompt"] and i:
             d.add(ids[i - 1])
         earlier = set(ids[:i])
@@ -1042,7 +1071,7 @@ def write_ledger(runner: Runner, run_dir: Path) -> None:
     for entry in runner.ledger:
         existing[str(entry["id"])] = entry
     ledger = sorted(existing.values(), key=lambda e: e["id"])
-    ledger_path.write_text(json.dumps(ledger, indent=1))
+    atomic_write_json(ledger_path, ledger)
     tot_tok = sum(e.get("total", 0) for e in ledger)
     tot_cost = sum(e.get("cost", 0.0) for e in ledger)
     tot_s = sum(e.get("seconds", 0) for e in ledger)
@@ -1061,6 +1090,12 @@ def _on_terminate(signum, _frame):  # noqa: ANN001 - stdlib signal handler API
     otherwise survive the cancel as orphans.
     """
     terminate_children()
+    if ACTIVE_BUNDLE is not None:
+        try:
+            ACTIVE_BUNDLE.mark_interrupted(f"received signal {signum}")
+        except Exception:
+            pass
+        ACTIVE_BUNDLE.close()
     sys.exit(130 if signum == signal.SIGINT else 143)
 
 
@@ -1075,6 +1110,10 @@ def main() -> int:
     ap.add_argument("--from", dest="from_id", help="re-run this step and all dependents (requires --run-dir)")
     ap.add_argument("--run-dir", type=Path)
     ap.add_argument("--verify", action="store_true")
+    ap.add_argument("--resume", action="store_true",
+                    help="resume a durable v1 run from its committed unfinished boundary")
+    ap.add_argument("--force-drift", action="store_true",
+                    help="explicitly audit and allow changed workflow source on resume")
     ap.add_argument("--regen", default="", help="comma-separated step ids to force fresh (bypass cache read)")
     ap.add_argument("--no-cache", action="store_true")
     ap.add_argument("--no-history", action="store_true",
@@ -1099,7 +1138,11 @@ def main() -> int:
         args.events.parent.mkdir(parents=True, exist_ok=True)
         EVENTS_PATH = args.events
 
-    spec = validate_workflow_contract(yaml.safe_load(args.steps_file.read_text()), args.steps_file)
+    steps_path = args.steps_file.expanduser().resolve()
+    workflow_bytes = steps_path.read_bytes()
+    spec = validate_workflow_contract(
+        yaml.safe_load(workflow_bytes.decode("utf-8")), steps_path
+    )
     steps = spec.get("steps") or []
     if not steps:
         raise SystemExit("no steps defined")
@@ -1119,8 +1162,12 @@ def main() -> int:
     deps, prev_map = build_deps(steps)
     if args.from_id and args.from_id not in ids:
         raise SystemExit(f"unknown --from step '{args.from_id}'")
-    if (args.from_id or args.verify) and not args.run_dir:
-        raise SystemExit("--from/--verify require --run-dir")
+    if args.resume and args.from_id:
+        raise SystemExit("choose --resume or --from, not both")
+    if args.force_drift and not (args.resume or args.from_id):
+        raise SystemExit("--force-drift requires --resume or --from")
+    if (args.from_id or args.verify or args.resume) and not args.run_dir:
+        raise SystemExit("--from/--verify/--resume require --run-dir")
 
     cwd = args.cwd.expanduser().resolve() if args.cwd else (
         args.steps_file.parent / spec.get("cwd", ".")
@@ -1131,12 +1178,9 @@ def main() -> int:
     run_dir = (args.run_dir or args.steps_file.parent / "runs" /
                f"{workflow}-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}").resolve()
 
-    if args.verify:
-        if not run_dir.is_dir():
-            raise SystemExit(f"run dir not found: {run_dir}")
-        return verify_run(spec, steps, run_dir, cwd)
-
     if args.run_dir:
+        if (args.verify or args.resume or args.from_id) and not run_dir.is_dir():
+            raise SystemExit(f"run dir not found: {run_dir}")
         run_dir.mkdir(parents=True, exist_ok=True)
     else:
         # Run dirs are named to the second, so two runs started in the same second
@@ -1153,31 +1197,158 @@ def main() -> int:
                 attempt += 1
                 run_dir = base.parent / f"{base.name}-{attempt}"
 
-    input_path = run_dir / "input.txt"
+    incoming_input = None
     if args.input is not None:
-        input_path.write_text(args.input, encoding="utf-8")
+        incoming_input = args.input.encode("utf-8")
     elif args.input_file is not None:
         source = args.input_file.expanduser().resolve()
         if not source.is_file():
             raise SystemExit(f"input file not found: {source}")
-        input_path.write_bytes(source.read_bytes())
+        incoming_input = source.read_bytes()
+
+    workflow_dir = (args.workflow_dir.expanduser().resolve() if args.workflow_dir else cwd)
+    input_path = run_dir / "input.txt"
+    durable_existing = any((run_dir / name).exists()
+                           for name in (MANIFEST_NAME, "state.json", BOOTSTRAP_NAME))
+    bundle: RunBundle | None = None
+    if args.resume and not durable_existing:
+        raise SystemExit(
+            "legacy run has no durable resume boundary; use --from STEP"
+        )
+
+    if args.verify:
+        if durable_existing:
+            bundle = RunBundle(run_dir).acquire()
+            global ACTIVE_BUNDLE
+            ACTIVE_BUNDLE = bundle
+            try:
+                bundle.load()
+                bundle.verify_integrity()
+            except BundleError as error:
+                bundle.close()
+                ACTIVE_BUNDLE = None
+                raise SystemExit(f"durable bundle verification failed: {error}") from error
+        try:
+            return verify_run(spec, steps, run_dir, cwd)
+        finally:
+            if bundle:
+                bundle.close()
+                ACTIVE_BUNDLE = None
+
+    if args.resume or (args.from_id and durable_existing):
+        bundle = RunBundle(run_dir).acquire()
+        ACTIVE_BUNDLE = bundle
+        try:
+            bundle.load()
+            bundle.verify_integrity()
+            bundle.check_resume_source(workflow_bytes, force_drift=args.force_drift)
+            if set(bundle.state["steps"]) != set(ids):
+                raise BundleError(
+                    "workflow step topology differs from the frozen run; start a new run"
+                )
+            if incoming_input is not None:
+                recorded = bundle.manifest.get("input")
+                if recorded is None or sha256_bytes(incoming_input) != recorded.get("sha256"):
+                    raise BundleError("run input is immutable and differs from the supplied input")
+            if args.resume:
+                bundle.classify_released_running_as_interrupted()
+        except BundleError as error:
+            bundle.close()
+            ACTIVE_BUNDLE = None
+            raise SystemExit(str(error)) from error
+    elif not args.from_id:
+        bundle = RunBundle(run_dir).acquire()
+        ACTIVE_BUNDLE = bundle
+        try:
+            bundle.initialize(
+                workflow_bytes=workflow_bytes, source_path=steps_path,
+                input_bytes=incoming_input, cwd=cwd, workflow_dir=workflow_dir,
+                step_ids=ids, events_path=args.events,
+            )
+        except BundleError as error:
+            bundle.close()
+            ACTIVE_BUNDLE = None
+            raise SystemExit(str(error)) from error
+    else:
+        # Legacy surgical resume retains its old artifact contract. New durable
+        # resume is deliberately unavailable without a committed state boundary.
+        if args.resume:
+            raise SystemExit(
+                "legacy run has no durable resume boundary; use --from STEP"
+            )
+        if incoming_input is not None:
+            try:
+                descriptor = os.open(input_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError:
+                if input_path.read_bytes() != incoming_input:
+                    raise SystemExit(
+                        "run input is immutable: the existing input.txt differs from the supplied input"
+                    )
+            else:
+                with os.fdopen(descriptor, "wb") as output:
+                    output.write(incoming_input)
+                    output.flush()
+                    os.fsync(output.fileno())
+
     input_contract = spec.get("input") if isinstance(spec.get("input"), dict) else {}
     if input_contract.get("required") and not input_path.is_file():
+        if bundle:
+            bundle.close()
+            ACTIVE_BUNDLE = None
         raise SystemExit("this workflow requires --input or --input-file")
-    cache_dir = None if args.no_cache else args.steps_file.parent / "cache"
+    cache_dir = None if args.no_cache else steps_path.parent / "cache"
     regen = {s for s in args.regen.split(",") if s}
     workers = int(spec.get("workers", 4))
 
-    # resume: --from X re-runs X + descendants; everything else must already exist
+    # Resume preserves only committed successful or deterministic terminal states.
     todo = set(ids)
-    if args.from_id:
+    if args.resume:
+        assert bundle is not None and bundle.state is not None
+        terminal: set[str] = set()
+        for sid, item in bundle.state["steps"].items():
+            status = item.get("status")
+            if status in {"passed", "cached"}:
+                if not (run_dir / f"{sid}.md").is_file():
+                    bundle.close()
+                    ACTIVE_BUNDLE = None
+                    raise SystemExit(f"durable resume is missing accepted artifact for '{sid}'")
+                terminal.add(sid)
+            elif status == "skipped":
+                # A committed skip includes descendants cascaded from a branch;
+                # resuming them would violate the same terminal branch decision.
+                terminal.add(sid)
+        todo = set(ids) - terminal
+        if not todo:
+            bundle.close()
+            ACTIVE_BUNDLE = None
+            raise SystemExit("durable run is already complete; use --from STEP for an explicit rewind")
+        regen |= todo
+        bundle.record(
+            "run_resumed", run_status="running", increment_resume=True,
+            payload={"todo": [sid for sid in ids if sid in todo]},
+            step_updates={sid: {"status": "pending"} for sid in todo},
+        )
+    elif args.from_id:
         redo = descendants(deps, {args.from_id})
         for sid in ids:
-            if sid not in redo:
-                if not (run_dir / f"{sid}.md").exists():
+            if sid not in redo and not (run_dir / f"{sid}.md").exists():
+                if not (bundle and bundle.state and
+                        bundle.state["steps"].get(sid, {}).get("status") == "skipped"):
+                    if bundle:
+                        bundle.close()
+                        ACTIVE_BUNDLE = None
                     raise SystemExit(f"cannot resume: missing prior artifact for '{sid}'")
         todo = redo
         regen |= redo  # resumed steps must not silently reuse stale cache of themselves
+        if bundle:
+            bundle.record(
+                "run_rewound", run_status="running",
+                payload={"from": args.from_id, "todo": [sid for sid in ids if sid in todo]},
+                step_updates={sid: {"status": "pending"} for sid in todo},
+            )
+    elif bundle:
+        bundle.record("run_started", run_status="running",
+                      payload={"todo": ids, "workers": workers})
 
     log(run_dir, f"run start · workflow={workflow} · steps={len(todo)}/{len(steps)} · "
                  f"workers={workers} · cache={'off' if not cache_dir else 'on'} · dir={run_dir}")
@@ -1186,10 +1357,8 @@ def main() -> int:
          todo=[sid for sid in ids if sid in todo],
          steps=[{"id": s["id"], "needs": sorted(deps[s["id"]])} for s in steps])
 
-    workflow_dir = (args.workflow_dir.expanduser().resolve()
-                    if args.workflow_dir else cwd)
     runner = Runner(spec, steps, run_dir, cwd, cache_dir, regen, prev_map,
-                    workflow_dir=workflow_dir)
+                    workflow_dir=workflow_dir, bundle=bundle)
     by_id = {s["id"]: s for s in steps}
     done: set[str] = {sid for sid in ids if sid not in todo}
     failed: set[str] = set()
@@ -1203,6 +1372,10 @@ def main() -> int:
                     skipped.add(descendant)
                     log(run_dir, f"{descendant}: skipped ({reason})")
                     emit("step_skipped", id=descendant, reason=reason)
+                    if bundle:
+                        bundle.record("step_skipped", step_id=descendant,
+                                      step_status="skipped", step_reason=reason,
+                                      deterministic=False)
 
         def dispatch_ready() -> None:
             for sid in ids:
@@ -1221,6 +1394,9 @@ def main() -> int:
                         failed.add(sid)
                         log(run_dir, f"{sid}: ERROR {error}")
                         emit("step_end", id=sid, passed=False, error=str(error))
+                        if bundle:
+                            bundle.record("step_finished", step_id=sid,
+                                          step_status="failed", payload={"error": str(error)})
                         cascade_skip(sid, f"depends on failed '{sid}'")
                         continue
                     emit("step_when", id=sid, passed=should_run, detail=detail)
@@ -1228,6 +1404,10 @@ def main() -> int:
                         skipped.add(sid)
                         log(run_dir, f"{sid}: skipped ({detail})")
                         emit("step_skipped", id=sid, reason=detail)
+                        if bundle:
+                            bundle.record("step_skipped", step_id=sid,
+                                          step_status="skipped", step_reason=detail,
+                                          deterministic=True)
                         cascade_skip(sid, f"branch not taken at '{sid}'")
                         continue
                 futures[pool.submit(runner.run_step, step)] = sid
@@ -1243,6 +1423,9 @@ def main() -> int:
                     ok = False
                     log(run_dir, f"{sid}: ERROR {exc}")
                     emit("step_end", id=sid, passed=False, error=str(exc))
+                    if bundle:
+                        bundle.record("step_finished", step_id=sid,
+                                      step_status="failed", payload={"error": str(exc)})
                 (done if ok else failed).add(sid)
                 git_commit(run_dir, f"{sid}: {'PASS' if ok else 'FAIL'}")
                 if not ok:
@@ -1253,6 +1436,11 @@ def main() -> int:
         write_ledger(runner, run_dir)
         log(run_dir, f"HALT · failed: {sorted(failed)} · skipped: {sorted(skipped)} · artifacts in {run_dir}")
         emit("run_end", ok=False, failed=sorted(failed), skipped=sorted(skipped))
+        if bundle:
+            bundle.record("run_failed", run_status="failed",
+                          payload={"failed": sorted(failed), "skipped": sorted(skipped)})
+            bundle.close()
+            ACTIVE_BUNDLE = None
         print(f"\nFAILED step(s) {sorted(failed)}. Fix and rerun with:\n"
               f"  python3 {shlex.quote(sys.argv[0])} {shlex.quote(str(args.steps_file))} "
               f"--from {sorted(failed)[0]} --run-dir {shlex.quote(str(run_dir))}", file=sys.stderr)
@@ -1281,6 +1469,11 @@ def main() -> int:
         write_ledger(runner, run_dir)
         if not qa_ok:
             emit("run_end", ok=False, failed=["__qa__"], skipped=[])
+            if bundle:
+                bundle.record("run_failed", run_status="failed",
+                              payload={"failed": ["__qa__"], "skipped": []})
+                bundle.close()
+                ACTIVE_BUNDLE = None
             print(f"\nQA FAILED. Report: {run_dir / 'qa.md'}\n"
                   f"Fix, rerun the offending step with --from or --regen, then re-check with:\n"
                   f"  python3 {shlex.quote(sys.argv[0])} {shlex.quote(str(args.steps_file))} "
@@ -1289,6 +1482,11 @@ def main() -> int:
     else:
         write_ledger(runner, run_dir)
     emit("run_end", ok=True, failed=[], skipped=sorted(skipped))
+    if bundle:
+        bundle.record("run_completed", run_status="completed",
+                      payload={"skipped": sorted(skipped)})
+        bundle.close()
+        ACTIVE_BUNDLE = None
     return 0
 
 

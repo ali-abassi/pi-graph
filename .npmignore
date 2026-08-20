@@ -17,3 +17,6 @@ outputs/
 state/
 certification/
 optimization/
+MISSION_PROGRESS.md
+.pi-graph-runs/
+evidence/

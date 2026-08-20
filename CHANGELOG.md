@@ -2,6 +2,30 @@
 
 All notable changes to pi graph are documented here.
 
+## Unreleased
+
+### Durable local runs
+
+- New runs freeze exact workflow/input identity and atomically project a
+  schema-versioned manifest/state beside a contiguous, repairable trace.
+- `piw resume WORKFLOW RUN` and the Pi tool resume only the committed unfinished
+  boundary under a one-writer lock; workflow drift is explicit and audited,
+  while input drift is never forceable.
+- Legacy run artifacts/list/detail/`--from` behavior remains compatible.
+- Retry output isolation, conditional dependency validation, skipped-run
+  verification, immutable input, and atomic ledger regressions are fixed.
+
+### First-class Studio visualization
+
+- Studio discovers durable history after restart and renders the selected run's
+  frozen graph, authoritative progress/provenance, committed trace, and bounded
+  node output/stderr/attempt evidence as one synchronized workspace.
+- Run/node/trace search, graph fit/reset, URL-restored selection, keyboard tabs
+  and node navigation, visible text states, responsive mobile layout, and a
+  copy-only recovery command make evidence usable rather than decorative.
+- Legacy, incomplete, and corrupt bundles remain visibly read-only; exact-ID,
+  symlink, response-size, Host, token, body, and session defenses fail closed.
+
 ## 0.1.0 — 2026-07-19
 
 First public release.

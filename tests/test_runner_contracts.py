@@ -13,6 +13,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
@@ -151,6 +152,24 @@ class GraphParityTests(unittest.TestCase):
         tampered = {**canvas, "b": set()}
         self.assertNotEqual(tampered, run_steps.build_deps(steps)[0])
 
+    def test_condition_source_is_a_dependency_in_both_graphs(self) -> None:
+        steps = [
+            {"id": "source"},
+            {"id": "branch", "needs": [], "from": "source",
+             "when": {"op": "exists", "path": "/value"}},
+        ]
+        expected = {"source"}
+        self.assertEqual(run_steps.build_deps(steps)[0]["branch"], expected)
+        self.assertEqual(pygraph.build_deps(steps)[0]["branch"], expected)
+
+    def test_unknown_condition_source_is_rejected_in_both_graphs(self) -> None:
+        steps = [{"id": "branch", "from": "missing",
+                  "when": {"op": "exists", "path": "/value"}}]
+        with self.assertRaises(SystemExit):
+            run_steps.build_deps(steps)
+        with self.assertRaises(pygraph.WorkflowParseError):
+            pygraph.build_deps(steps)
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -254,6 +273,19 @@ class ValidateHintTests(unittest.TestCase):
             self.assertIn("--input-file", result.stdout, result.stdout + result.stderr)
 
 
+class AtomicProjectionTests(unittest.TestCase):
+    def test_failed_ledger_replacement_preserves_the_previous_valid_projection(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "ledger.json"
+            original = [{"id": "one", "status": "passed"}]
+            path.write_text(json.dumps(original), encoding="utf-8")
+            with patch.object(run_steps.os, "replace", side_effect=OSError("disk fault")):
+                with self.assertRaisesRegex(OSError, "disk fault"):
+                    run_steps.atomic_write_json(path, [{"id": "two", "status": "passed"}])
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), original)
+            self.assertEqual(list(path.parent.glob(f".{path.name}.*.tmp")), [])
+
+
 class BudgetAndLedgerTests(unittest.TestCase):
     def test_retries_and_judge_budgets_do_not_cancel_each_other(self) -> None:
         """`attempts` used to be max_iters OR retries+1, so declaring both
@@ -290,6 +322,111 @@ class BudgetAndLedgerTests(unittest.TestCase):
                            capture_output=True, text=True, env=environment, timeout=120)
             after = {e["id"] for e in json.loads((run_dir / "ledger.json").read_text())}
             self.assertEqual(after, {"one", "two"}, "resuming erased earlier ledger entries")
+
+
+class SkippedVerificationTests(unittest.TestCase):
+    def test_verify_accepts_a_recorded_conditional_skip_without_an_artifact(self) -> None:
+        import os as _os
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            steps = root / "steps.yaml"
+            run_dir = root / "run"
+            steps.write_text(yaml.safe_dump({
+                "version": 1,
+                "workflow": "verify-skip",
+                "steps": [
+                    {"id": "source", "cmd": "echo '{\"take\":false}' > \"$OUT\""},
+                    {"id": "branch", "needs": [], "from": "source",
+                     "when": {"op": "equals", "path": "/take", "value": True},
+                     "cmd": 'printf unexpected > "$OUT"'},
+                ],
+            }, sort_keys=False), encoding="utf-8")
+            environment = {**_os.environ, "PI_GRAPH_ROOTS": str(root)}
+            run = subprocess.run(
+                [sys.executable, str(SCRIPTS / "run_steps.py"), str(steps),
+                 "--run-dir", str(run_dir)],
+                capture_output=True, text=True, timeout=120, env=environment,
+            )
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+            self.assertFalse((run_dir / "branch.md").exists())
+
+            verify = subprocess.run(
+                [sys.executable, str(SCRIPTS / "run_steps.py"), str(steps),
+                 "--run-dir", str(run_dir), "--verify"],
+                capture_output=True, text=True, timeout=120, env=environment,
+            )
+            self.assertEqual(verify.returncode, 0, verify.stdout + verify.stderr)
+
+
+class RunInputImmutabilityTests(unittest.TestCase):
+    def test_resume_refuses_to_replace_the_original_run_input(self) -> None:
+        import os as _os
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            steps = root / "steps.yaml"
+            run_dir = root / "run"
+            steps.write_text(yaml.safe_dump({
+                "version": 1,
+                "workflow": "immutable-input",
+                "input": {"required": True, "description": "fixed run input"},
+                "steps": [{
+                    "id": "copy", "cmd": 'cat "$INPUT" > "$OUT"',
+                    "gate": 'test -s "$OUT"',
+                }],
+            }, sort_keys=False), encoding="utf-8")
+            environment = {**_os.environ, "PI_GRAPH_ROOTS": str(root)}
+            first = subprocess.run(
+                [sys.executable, str(SCRIPTS / "run_steps.py"), str(steps),
+                 "--run-dir", str(run_dir), "--input", "first"],
+                capture_output=True, text=True, timeout=120, env=environment,
+            )
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+
+            resumed = subprocess.run(
+                [sys.executable, str(SCRIPTS / "run_steps.py"), str(steps),
+                 "--from", "copy", "--run-dir", str(run_dir), "--input", "second"],
+                capture_output=True, text=True, timeout=120, env=environment,
+            )
+            self.assertNotEqual(resumed.returncode, 0, resumed.stdout + resumed.stderr)
+            self.assertIn("immutable", resumed.stdout + resumed.stderr)
+            self.assertEqual((run_dir / "input.txt").read_text(encoding="utf-8"), "first")
+
+
+class RetryArtifactIsolationTests(unittest.TestCase):
+    def test_each_retry_starts_without_the_previous_attempt_artifact(self) -> None:
+        """A failed command can leave a plausible $OUT behind.
+
+        A later successful attempt that emits nothing must not inherit that
+        rejected artifact and pass a gate against stale bytes.
+        """
+        import os as _os
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            steps = root / "steps.yaml"
+            steps.write_text(yaml.safe_dump({
+                "version": 1,
+                "workflow": "retry-artifact-isolation",
+                "steps": [{
+                    "id": "write",
+                    "retries": 1,
+                    "cmd": (
+                        'count="$RUN/count"; '
+                        'if test ! -f "$count"; then '
+                        '  touch "$count"; printf stale > "$OUT"; exit 1; '
+                        'fi'
+                    ),
+                    "gate": 'test ! -s "$OUT"',
+                }],
+            }, sort_keys=False), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS / "run_steps.py"), str(steps), "--no-cache"],
+                capture_output=True, text=True, timeout=120,
+                env={**_os.environ, "PI_GRAPH_ROOTS": str(root)},
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            run_dir = sorted((root / "runs").iterdir())[-1]
+            self.assertEqual((run_dir / "write.md").read_text(encoding="utf-8"), "")
+            self.assertEqual((run_dir / "write.a1.md").read_text(encoding="utf-8"), "stale")
 
 
 class StepIdTests(unittest.TestCase):

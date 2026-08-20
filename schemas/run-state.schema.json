@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pi-graph.run-state.v1",
+  "title": "Pi Graph durable run state v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "run_id", "status", "trace_seq", "resume_count", "steps", "updated_at"],
+  "properties": {
+    "schema": {"const": "pi-graph.run-state.v1"},
+    "run_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["initialized", "running", "interrupted", "failed", "completed"]},
+    "trace_seq": {"type": "integer", "minimum": 0},
+    "resume_count": {"type": "integer", "minimum": 0},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "steps": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object", "additionalProperties": false,
+        "required": ["status", "updated_at"],
+        "properties": {
+          "status": {"enum": ["pending", "running", "passed", "failed", "skipped", "cached", "interrupted"]},
+          "updated_at": {"type": "string", "format": "date-time"},
+          "reason": {"type": "string"},
+          "deterministic": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}

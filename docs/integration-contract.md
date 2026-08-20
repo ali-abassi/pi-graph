@@ -40,6 +40,22 @@ The installer links this repository into `~/.claude/skills/pi-graph`.
 Claude Code follows supported skill-directory symlinks. Deterministic lifecycle
 hooks remain optional; workflow control flow stays in the runner, not in a hook.
 
+## Studio read model
+
+`piw ui` starts an optional loopback-only stdlib server. Its browser boot data is
+for presentation; the Python runner remains the only execution authority.
+`POST /api/run` retains the per-boot mutation token and launches that canonical
+runner. `GET /api/runs` returns at most 200 exact child runs; `GET /api/run?id=`
+accepts only a safe exact directory name and returns a bounded v1 projection of
+the frozen graph, authoritative state/manifest, at most 500 committed trace
+events, and bounded legacy step evidence. Responses never exceed 2 MiB.
+
+Historical reads reject symlinks, traversal, arbitrary file names, and unknown
+run IDs. They do not instantiate the repairing bundle owner, acquire its lock,
+truncate trace tails, or update mtimes. Existing Host-header rejection,
+loopback bind, no-store/CSP/nosniff headers, request-body cap, mutation token,
+and active-session limits apply unchanged.
+
 ## Scheduler adapter (optional, not bundled)
 
 `piw schedule`, `piw automations`, and `piw automation` delegate to an external
@@ -60,7 +76,7 @@ adapter is absent or resolves a different workflow path.
   and startup refresh disabled. Every non-empty JSONL line must parse, the
   requested provider/model must match, and `agent_settled` must follow the final
   successful assistant message.
-- Python: 3.11 or newer, with PyYAML 6.x, ruamel.yaml 0.18.x, and
+- Python: 3.10 or newer, tested in CI on 3.10/3.12/3.13/3.14, with PyYAML 6.x, ruamel.yaml 0.18.x, and
   jsonschema 4.x for the public workflow contract boundary.
 - Workflow YAML is the cross-agent API. CLI JSON is the automation API.
 

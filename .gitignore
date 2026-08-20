@@ -16,3 +16,5 @@ cache/
 batch-*/
 examples/workflows/13-thousand-item-pipeline/corpus.jsonl
 *.egg-info/
+.pi-graph-runs/
+evidence/visualization/baseline/

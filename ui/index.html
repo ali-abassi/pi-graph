@@ -14,97 +14,162 @@
         <path fill-rule="evenodd" d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"/>
         <path d="M517.36 400H634.72V634.72H517.36Z"/>
       </svg>
-      <div><strong>graph</strong><span>COMMUNITY STUDIO</span></div>
+      <div><strong>graph</strong><span>EVIDENCE STUDIO</span></div>
     </div>
-    <div class="run-state">
-      <span id="statusDot" class="status-dot"></span>
-      <span id="statusText">Ready to run</span>
+
+    <div id="globalState" class="global-state" data-status="idle" role="status" aria-live="polite">
+      <span id="globalStateGlyph" class="status-glyph" aria-hidden="true">○</span>
+      <span id="globalStateText">Opening durable history…</span>
     </div>
-    <button id="runButton" class="run-button" type="button">
-      <span class="run-icon">▶</span><span>Run workflow</span><kbd>⌘↵</kbd>
-    </button>
+
+    <div class="top-actions">
+      <button id="refreshButton" class="icon-button" type="button" aria-label="Refresh durable evidence" title="Refresh durable evidence">↻</button>
+      <button id="runButton" class="run-button" type="button">
+        <span aria-hidden="true">▶</span><span>Run workflow</span><kbd>⌘↵</kbd>
+      </button>
+    </div>
   </header>
 
-  <main class="shell">
-    <section class="workspace" aria-label="Workflow graph">
-      <div class="workflow-heading">
+  <main class="studio-shell">
+    <aside id="runRail" class="run-rail" aria-label="Durable run history">
+      <div class="rail-heading">
         <div>
-          <p class="eyebrow">EXECUTABLE BLUEPRINT</p>
-          <h1 id="workflowName">Workflow</h1>
-          <p id="workflowPath" class="path"></p>
+          <p class="eyebrow">DURABLE HISTORY</p>
+          <h1>Runs</h1>
         </div>
-        <div class="metrics" aria-label="Workflow metrics">
-          <div><span id="nodeCount">0</span><small>NODES</small></div>
-          <div><span id="workerCount">0</span><small>WORKERS</small></div>
-          <div><span id="tokenCount">—</span><small>TOKENS</small></div>
-          <div><span id="costCount">—</span><small>COST</small></div>
-        </div>
+        <button id="closeRunsButton" class="mobile-only icon-button" type="button" aria-label="Close run history">×</button>
+      </div>
+      <label class="search-field" for="runSearch">
+        <span class="sr-only">Search runs</span>
+        <span aria-hidden="true">⌕</span>
+        <input id="runSearch" type="search" autocomplete="off" placeholder="Search exact run ID">
+      </label>
+      <div id="runIndexState" class="inline-state" role="status">Loading run index…</div>
+      <div id="runList" class="run-list" role="listbox" aria-label="Runs" aria-busy="true"></div>
+      <div class="rail-foot"><span id="runCount">0 runs</span><span>newest first</span></div>
+    </aside>
+    <div id="railScrim" class="rail-scrim" hidden></div>
+
+    <section class="evidence-workspace" aria-label="Selected run proof graph and committed trace">
+      <div class="mobile-run-row mobile-only">
+        <button id="openRunsButton" class="quiet-button" type="button" aria-controls="runRail" aria-expanded="false">Runs <span id="mobileRunCount">0</span></button>
+        <span id="mobileRunId" class="mono">No run selected</span>
       </div>
 
-      <div id="graphViewport" class="graph-viewport">
-        <div class="graph-toolbar">
-          <span>GRAPH</span>
-          <div class="legend">
-            <span><i class="legend-line fixed"></i>code</span>
-            <span><i class="legend-line pinned"></i>model</span>
-            <span><i class="legend-line open"></i>agent</span>
+      <section id="runContext" class="run-context" aria-labelledby="contextRunId" aria-busy="true">
+        <div class="context-primary">
+          <p class="eyebrow">SELECTED PROOF</p>
+          <div class="context-title-row">
+            <span id="contextStatusGlyph" class="status-glyph" aria-hidden="true">○</span>
+            <h2 id="contextRunId">Loading durable runs…</h2>
+            <span id="contextStatus" class="text-status">loading</span>
+          </div>
+          <p id="contextMessage" class="context-message">The graph will hydrate from the selected run’s frozen snapshot.</p>
+        </div>
+        <dl class="context-facts" aria-label="Run facts">
+          <div><dt>Progress</dt><dd id="contextProgress">—</dd></div>
+          <div><dt>Integrity</dt><dd id="contextIntegrity">—</dd></div>
+          <div><dt>Committed</dt><dd id="contextTrace">—</dd></div>
+          <div><dt>Resumes</dt><dd id="contextResumes">—</dd></div>
+          <div class="digest-fact"><dt>Workflow digest</dt><dd id="contextWorkflowHash">—</dd></div>
+          <div class="digest-fact"><dt>Input digest</dt><dd id="contextInputHash">—</dd></div>
+        </dl>
+        <div id="resumeBox" class="resume-box" hidden>
+          <div><strong>Interrupted run is resumable</strong><span id="resumeReason">Copy the canonical command and run it in your terminal.</span></div>
+          <code id="resumeCommand"></code>
+          <button id="copyResume" class="copy-button" type="button">Copy command</button>
+        </div>
+      </section>
+
+      <section class="graph-panel" aria-labelledby="graphTitle">
+        <div class="panel-toolbar">
+          <div class="panel-name"><span class="proof-kicker">FROZEN PROOF GRAPH</span><strong id="graphTitle">Workflow</strong></div>
+          <label class="toolbar-search" for="nodeSearch"><span class="sr-only">Search graph nodes</span><span aria-hidden="true">⌕</span><input id="nodeSearch" type="search" autocomplete="off" placeholder="Find node"></label>
+          <div class="toolbar-actions">
+            <button id="zoomOutButton" class="quiet-button" type="button" aria-label="Zoom graph out">−</button>
+            <button id="zoomInButton" class="quiet-button" type="button" aria-label="Zoom graph in">+</button>
+            <button id="fitGraphButton" class="quiet-button" type="button">Fit</button>
+            <button id="resetGraphButton" class="quiet-button" type="button">Reset</button>
           </div>
         </div>
-        <svg id="graph" role="img" aria-label="Workflow dependency graph"></svg>
-        <div id="emptyGraph" class="empty-state" hidden>
-          <b>No renderable nodes</b><span>Validate steps.yaml to see the graph.</span>
+        <div id="graphViewport" class="graph-viewport" tabindex="-1">
+          <svg id="graph" role="group" aria-label="Workflow dependency graph. Use arrow keys to move between nodes."></svg>
+          <div id="graphState" class="surface-state" role="status">
+            <strong>Loading frozen graph</strong><span>Waiting for durable run evidence.</span>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <section class="flight-recorder" aria-label="Run evidence">
-        <div class="section-title">
-          <span>FLIGHT RECORDER</span>
-          <span id="runId" class="mono">NO RUN YET</span>
+      <section class="trace-panel" aria-labelledby="traceTitle">
+        <div class="panel-toolbar trace-toolbar">
+          <div class="panel-name"><span class="proof-kicker">COMMITTED EVIDENCE</span><strong id="traceTitle">Trace</strong></div>
+          <label class="toolbar-search" for="traceSearch"><span class="sr-only">Filter committed trace</span><span aria-hidden="true">⌕</span><input id="traceSearch" type="search" autocomplete="off" placeholder="Filter type, node, payload"></label>
+          <span id="traceBound" class="bound-label">0 committed</span>
         </div>
-        <div id="eventFeed" class="event-feed">
-          <div class="event muted"><time>—</time><span>Waiting for a workflow run.</span></div>
+        <div id="traceList" class="trace-list" role="listbox" aria-label="Committed trace events" aria-busy="true"></div>
+        <div class="trace-foot">
+          <span id="traceProgress">No committed events</span>
+          <button id="loadMoreTrace" class="quiet-button" type="button" hidden>Show more</button>
         </div>
       </section>
     </section>
 
-    <aside class="inspector" aria-label="Node inspector">
-      <div class="inspector-tabs" role="tablist">
-        <button class="tab active" data-tab="node" role="tab">Node</button>
-        <button class="tab" data-tab="input" role="tab">Input</button>
-        <button class="tab" data-tab="output" role="tab">Output</button>
+    <aside class="inspector" aria-label="Evidence inspector">
+      <div id="inspectorTabs" class="inspector-tabs" role="tablist" aria-label="Evidence views">
+        <button id="tab-node" class="tab" type="button" role="tab" aria-selected="true" aria-controls="panel-node" tabindex="0" data-tab="node">Node</button>
+        <button id="tab-evidence" class="tab" type="button" role="tab" aria-selected="false" aria-controls="panel-evidence" tabindex="-1" data-tab="evidence">Evidence</button>
+        <button id="tab-trace" class="tab" type="button" role="tab" aria-selected="false" aria-controls="panel-trace" tabindex="-1" data-tab="trace">Trace</button>
+        <button id="tab-input" class="tab" type="button" role="tab" aria-selected="false" aria-controls="panel-input" tabindex="-1" data-tab="input">Input</button>
+        <button id="tab-new" class="tab" type="button" role="tab" aria-selected="false" aria-controls="panel-new" tabindex="-1" data-tab="new">New run</button>
       </div>
 
-      <div id="nodePanel" class="panel active" role="tabpanel">
-        <div class="node-identity">
-          <span id="nodeKind" class="kind-pill">NODE</span>
-          <span id="nodeStatus" class="node-status">not run</span>
-        </div>
-        <h2 id="nodeName">Select a node</h2>
-        <p id="nodeSummary" class="muted-copy">Click any graph node to inspect its exact runtime contract.</p>
+      <section id="panel-node" class="inspector-panel" role="tabpanel" aria-labelledby="tab-node" tabindex="0">
+        <div class="node-identity"><span id="nodeKind" class="kind-label">NODE</span><span id="nodeStatus" class="text-status">not selected</span></div>
+        <h2 id="nodeName">Select a graph node</h2>
+        <p id="nodeSummary" class="muted-copy">Each node is a claim. Select one to inspect its frozen declaration and recorded state.</p>
         <dl id="nodeFacts" class="facts"></dl>
-        <div class="code-section">
-          <div class="code-label"><span>DECLARATION</span><button id="copyBody" type="button">Copy</button></div>
-          <pre id="nodeBody">—</pre>
+        <div class="evidence-block">
+          <div class="block-label"><span>Frozen declaration</span><button id="copyDeclaration" class="copy-button" type="button" aria-label="Copy frozen declaration">Copy</button></div>
+          <pre id="nodeDeclaration">—</pre>
         </div>
-      </div>
+      </section>
 
-      <div id="inputPanel" class="panel" role="tabpanel">
-        <label for="workflowInput">IMMUTABLE RUN INPUT</label>
-        <p id="inputDescription" class="muted-copy"></p>
+      <section id="panel-evidence" class="inspector-panel" role="tabpanel" aria-labelledby="tab-evidence" tabindex="0" hidden>
+        <div class="inspector-heading"><div><p class="eyebrow">RECORDED ARTIFACT</p><h2 id="evidenceNodeName">No node selected</h2></div><button id="copyOutput" class="copy-button" type="button" aria-label="Copy node output">Copy output</button></div>
+        <dl id="evidenceFacts" class="facts"></dl>
+        <div class="evidence-block"><div class="block-label"><span>Output</span><span id="outputBound">—</span></div><pre id="nodeOutput">No recorded output.</pre></div>
+        <div class="evidence-block"><div class="block-label"><span>stderr</span></div><pre id="nodeStderr">No recorded stderr.</pre></div>
+        <div class="evidence-block"><div class="block-label"><span>Attempts and produced evidence</span></div><div id="attemptList" class="attempt-list">No attempt evidence.</div></div>
+      </section>
+
+      <section id="panel-trace" class="inspector-panel" role="tabpanel" aria-labelledby="tab-trace" tabindex="0" hidden>
+        <div class="inspector-heading"><div><p class="eyebrow">COMMITTED EVENT</p><h2 id="traceEventTitle">Select a trace event</h2></div><button id="copyTrace" class="copy-button" type="button" aria-label="Copy trace event JSON">Copy JSON</button></div>
+        <dl id="traceFacts" class="facts"></dl>
+        <div class="evidence-block"><div class="block-label"><span>Payload</span></div><pre id="tracePayload">—</pre></div>
+      </section>
+
+      <section id="panel-input" class="inspector-panel" role="tabpanel" aria-labelledby="tab-input" tabindex="0" hidden>
+        <div class="inspector-heading"><div><p class="eyebrow">IMMUTABLE INPUT</p><h2>Run provenance</h2></div><button id="copyInput" class="copy-button" type="button" aria-label="Copy immutable input">Copy input</button></div>
+        <dl id="inputFacts" class="facts"></dl>
+        <div class="evidence-block"><div class="block-label"><span>Frozen input</span></div><pre id="runInput">No durable run selected.</pre></div>
+      </section>
+
+      <section id="panel-new" class="inspector-panel" role="tabpanel" aria-labelledby="tab-new" tabindex="0" hidden>
+        <p class="eyebrow">CANONICAL LAUNCH</p>
+        <h2>Start a new run</h2>
+        <p id="inputDescription" class="muted-copy">This calls the existing runner. The browser does not schedule or resume work.</p>
+        <label for="workflowInput">Immutable run input</label>
         <textarea id="workflowInput" spellcheck="false" placeholder="Paste the input this run should freeze…"></textarea>
-        <div class="input-foot"><span id="inputBytes">0 B</span><span>copied into input.txt</span></div>
-      </div>
+        <div class="input-foot"><span id="inputBytes">0 B</span><span>saved as input.txt when provided</span></div>
+        <button id="launchButton" class="run-button wide-button" type="button"><span aria-hidden="true">▶</span><span>Start canonical run</span></button>
+        <div id="launchState" class="launch-state" role="status" aria-live="polite">Ready. Run evidence appears only after it is durably committed.</div>
+      </section>
 
-      <div id="outputPanel" class="panel" role="tabpanel">
-        <div class="output-heading"><span>LATEST ARTIFACT</span><button id="copyOutput" type="button">Copy</button></div>
-        <pre id="runOutput">Run the graph to inspect its final artifact.</pre>
-        <div id="hotspot" class="hotspot" hidden></div>
-      </div>
-
-      <div id="errorBox" class="error-box" role="alert" hidden></div>
+      <div id="inspectorError" class="error-box" role="alert" hidden></div>
     </aside>
   </main>
 
+  <div id="copyFeedback" class="sr-only" role="status" aria-live="polite"></div>
   <script id="piw-boot" type="application/json">__PIW_BOOT__</script>
   <script src="/assets/app.js" defer></script>
 </body>

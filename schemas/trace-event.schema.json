@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pi-graph.trace-event.v1",
+  "title": "Pi Graph durable trace event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "seq", "timestamp", "run_id", "type", "payload"],
+  "properties": {
+    "schema": {"const": "pi-graph.trace-event.v1"},
+    "seq": {"type": "integer", "minimum": 1},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "run_id": {"type": "string", "minLength": 1},
+    "type": {"type": "string", "minLength": 1},
+    "step_id": {"type": "string", "minLength": 1},
+    "payload": {"type": "object"}
+  }
+}
