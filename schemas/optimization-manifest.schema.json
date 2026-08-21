@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pi-graph.optimization-manifest.v1",
+  "title": "Pi Graph immutable optimization manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "experiment_id", "contract", "baseline", "sources", "development", "holdout", "evaluation", "boundaries", "budgets", "runtime", "created_at"],
+  "properties": {
+    "schema": {"const": "pi-graph.optimization-manifest.v1"},
+    "experiment_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "contract": {"$ref": "#/$defs/pathHash"},
+    "baseline": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_path", "snapshot", "sha256", "semantic_sha256", "mode"],
+      "properties": {
+        "source_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "snapshot": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "semantic_sha256": {"$ref": "#/$defs/sha256"},
+        "mode": {"type": "integer", "minimum": 0, "maximum": 4095}
+      }
+    },
+    "sources": {"type": "array", "maxItems": 5000, "items": {"$ref": "#/$defs/source"}},
+    "development": {"$ref": "#/$defs/corpus"},
+    "holdout": {"$ref": "#/$defs/corpus"},
+    "evaluation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["evaluation_version", "evaluator", "parser", "hard_gates", "metric", "repeats", "seeds", "uncertainty", "tie_breakers"],
+      "properties": {
+        "evaluation_version": {"type": "string", "minLength": 1, "maxLength": 200},
+        "evaluator": {"$ref": "#/$defs/programIdentity"},
+        "parser": {"$ref": "#/$defs/programIdentity"},
+        "hard_gates": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/gateIdentity"}},
+        "metric": {
+          "type": "object", "additionalProperties": false,
+          "required": ["name", "direction", "minimum_gain"],
+          "properties": {
+            "name": {"type": "string", "minLength": 1, "maxLength": 200},
+            "direction": {"enum": ["maximize", "minimize"]},
+            "minimum_gain": {"type": "number", "minimum": 0, "maximum": 1e308}
+          }
+        },
+        "repeats": {"type": "integer", "minimum": 1, "maximum": 10000},
+        "seeds": {"type": "array", "minItems": 1, "maxItems": 10000, "uniqueItems": true, "items": {"type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991}},
+        "uncertainty": {
+          "type": "object", "additionalProperties": false,
+          "required": ["method", "minimum_repeats"],
+          "properties": {"method": {"enum": ["none", "interval"]}, "minimum_repeats": {"type": "integer", "minimum": 1, "maximum": 10000}}
+        },
+        "tie_breakers": {"type": "array", "maxItems": 3, "uniqueItems": true, "items": {"enum": ["lower_cost", "lower_tokens", "lower_wall_seconds"]}}
+      }
+    },
+    "boundaries": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mutable", "authorized_effects", "network", "rollback"],
+      "properties": {
+        "mutable": {
+          "type": "array", "minItems": 1, "maxItems": 100,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["mechanism", "pointer"],
+            "properties": {"mechanism": {"type": "string", "minLength": 1, "maxLength": 100}, "pointer": {"type": "string", "minLength": 1, "maxLength": 2000}}
+          }
+        },
+        "authorized_effects": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 200}},
+        "network": {"enum": ["denied", "allowed"]},
+        "rollback": {"type": "string", "minLength": 1, "maxLength": 2000}
+      }
+    },
+    "budgets": {"$ref": "#/$defs/budgets"},
+    "runtime": {"$ref": "#/$defs/runtime"},
+    "created_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "nullableSha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40,64}$"},
+    "pathHash": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1, "maxLength": 4096}, "sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "path", "sha256"],
+      "properties": {
+        "role": {"enum": ["evaluator", "parser", "protected", "dependency"]},
+        "path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "corpus": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sha256", "format", "count"],
+      "properties": {"sha256": {"$ref": "#/$defs/sha256"}, "format": {"const": "jsonl"}, "count": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}}
+    },
+    "programIdentity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["argv_sha256", "sources_sha256", "executable_path", "executable_sha256", "timeout_seconds"],
+      "properties": {
+        "argv_sha256": {"$ref": "#/$defs/sha256"},
+        "sources_sha256": {"$ref": "#/$defs/sha256"},
+        "executable_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "executable_sha256": {"$ref": "#/$defs/sha256"},
+        "timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 1e308}
+      }
+    },
+    "gateIdentity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "argv_sha256", "executable_path", "executable_sha256", "timeout_seconds"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"},
+        "argv_sha256": {"$ref": "#/$defs/sha256"},
+        "executable_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "executable_sha256": {"$ref": "#/$defs/sha256"},
+        "timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 1e308}
+      }
+    },
+    "armBudget": {
+      "type": "object", "additionalProperties": false,
+      "required": ["max_wall_seconds", "max_tokens", "max_cost_usd", "max_failures"],
+      "properties": {
+        "max_wall_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 1e308},
+        "max_tokens": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "max_cost_usd": {"type": "number", "minimum": 0, "maximum": 1e308},
+        "max_failures": {"type": "integer", "minimum": 0, "maximum": 1000000}
+      }
+    },
+    "promotionBudget": {
+      "type": "object", "additionalProperties": false,
+      "required": ["max_wall_seconds", "max_tokens", "max_cost_usd"],
+      "properties": {
+        "max_wall_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 1e308},
+        "max_tokens": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "max_cost_usd": {"type": "number", "minimum": 0, "maximum": 1e308}
+      }
+    },
+    "budgets": {
+      "type": "object", "additionalProperties": false,
+      "required": ["max_candidates", "max_wall_seconds", "max_tokens", "max_cost_usd", "max_failures", "max_consecutive_non_keeps", "per_candidate", "promotion"],
+      "properties": {
+        "max_candidates": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "max_wall_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 1e308},
+        "max_tokens": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "max_cost_usd": {"type": "number", "minimum": 0, "maximum": 1e308},
+        "max_failures": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "max_consecutive_non_keeps": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "per_candidate": {"$ref": "#/$defs/armBudget"},
+        "promotion": {"$ref": "#/$defs/promotionBudget"}
+      }
+    },
+    "fileIdentity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1, "maxLength": 4096}, "sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "batch": {
+      "type": "object", "additionalProperties": false,
+      "required": ["parallel", "require_all", "item_timeout_seconds", "cache"],
+      "properties": {
+        "parallel": {"type": "integer", "minimum": 1, "maximum": 32},
+        "require_all": {"const": true},
+        "item_timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 1e308},
+        "cache": {"const": false}
+      }
+    },
+    "runtime": {
+      "type": "object", "additionalProperties": false,
+      "required": ["fingerprint_sha256", "lifecycle_schema", "schema_versions", "product_version", "product_tree_sha256", "source_revision", "source_dirty", "piw", "run_batch", "run_steps", "python", "node", "pi", "provider", "model", "thinking", "tools", "dependencies", "environment_hashes", "network", "batch", "platform", "cpu", "memory"],
+      "properties": {
+        "fingerprint_sha256": {"$ref": "#/$defs/sha256"},
+        "lifecycle_schema": {"const": "pi-graph.optimization.v1"},
+        "schema_versions": {
+          "type": "object", "additionalProperties": false,
+          "required": ["contract", "manifest", "state", "event", "metrics", "receipt"],
+          "properties": {
+            "contract": {"const": "pi-graph.optimization-contract.v1"},
+            "manifest": {"const": "pi-graph.optimization-manifest.v1"},
+            "state": {"const": "pi-graph.optimization-state.v1"},
+            "event": {"const": "pi-graph.optimization-event.v1"},
+            "metrics": {"const": "pi-graph.optimization-metrics.v1"},
+            "receipt": {"const": "pi-graph.optimization-receipt.v1"}
+          }
+        },
+        "product_version": {"type": "string", "minLength": 1, "maxLength": 100},
+        "product_tree_sha256": {"$ref": "#/$defs/sha256"},
+        "source_revision": {"$ref": "#/$defs/nullableSha256"},
+        "source_dirty": {"type": ["boolean", "null"]},
+        "piw": {"$ref": "#/$defs/fileIdentity"},
+        "run_batch": {"$ref": "#/$defs/fileIdentity"},
+        "run_steps": {"$ref": "#/$defs/fileIdentity"},
+        "python": {"type": "string", "minLength": 1, "maxLength": 500},
+        "node": {"type": ["string", "null"], "maxLength": 500},
+        "pi": {"type": ["string", "null"], "maxLength": 500},
+        "provider": {"type": "string", "minLength": 1, "maxLength": 300},
+        "model": {"type": "string", "minLength": 1, "maxLength": 300},
+        "thinking": {"type": "string", "minLength": 1, "maxLength": 100},
+        "tools": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 200}},
+        "dependencies": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/pathHash"}},
+        "environment_hashes": {"type": "object", "additionalProperties": false, "patternProperties": {"^[A-Za-z_][A-Za-z0-9_]*$": {"$ref": "#/$defs/sha256"}}, "maxProperties": 100},
+        "network": {"enum": ["denied", "allowed"]},
+        "batch": {"$ref": "#/$defs/batch"},
+        "platform": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "cpu": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "memory": {"type": "string", "minLength": 1, "maxLength": 1000}
+      }
+    }
+  }
+}

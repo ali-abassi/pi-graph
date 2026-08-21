@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-const ACTIONS = ["doctor", "schema", "actions", "add", "list", "create", "graph", "path", "validate", "run", "resume", "batch", "batch-status", "batch-cancel", "runs", "detail", "compare", "show", "set", "stats", "eval", "reports", "schedule", "automations", "automation"] as const;
+const ACTIONS = ["doctor", "version", "schema", "actions", "add", "list", "create", "graph", "path", "validate", "run", "resume", "batch", "batch-status", "batch-cancel", "runs", "detail", "compare", "show", "set", "stats", "eval", "reports", "schedule", "automations", "automation", "optimize-init", "optimize-baseline", "optimize-candidate", "optimize-status", "optimize-resume", "optimize-stop", "optimize-promote", "optimize-receipt"] as const;
 const PIW = fileURLToPath(new URL("../bin/piw", import.meta.url));
 const TOOL_MAX_LINES = 500;
 const TOOL_MAX_BYTES = 24 * 1024;
@@ -36,12 +36,44 @@ async function boundedOutput(output: string) {
 export function argumentsFor(params: Record<string, unknown>): string[] {
   const action = String(params.action ?? "list");
   if (!(ACTIONS as readonly string[]).includes(action)) throw new Error(`unsupported Pi Graph action: ${action}`);
-  const command = action === "list" ? "ls" : action;
-  const args = [command];
-  if (!["ls", "doctor", "schema", "actions", "create", "batch-status", "batch-cancel", "automations", "automation"].includes(command)) {
+  const optimizeAction = action.startsWith("optimize-") ? action.slice("optimize-".length) : "";
+  const command = action === "list" ? "ls" : optimizeAction ? "optimize" : action;
+  const args = optimizeAction ? ["optimize", optimizeAction] : [command];
+  if (!["ls", "doctor", "version", "schema", "actions", "create", "batch-status", "batch-cancel", "automations", "automation", "optimize"].includes(command)) {
     const workflow = typeof params.workflow === "string" ? params.workflow.trim() : "";
     if (!workflow) throw new Error(`${action} requires a workflow id or unique name`);
     args.push(workflow);
+  }
+  if (command === "version") {
+    if (typeof params.compareRoot === "string" && params.compareRoot.trim()) args.push("--compare-root", params.compareRoot.trim());
+  }
+  if (command === "optimize") {
+    if (optimizeAction === "init") {
+      const workflow = typeof params.workflow === "string" ? params.workflow.trim() : "";
+      const contract = typeof params.contract === "string" ? params.contract.trim() : "";
+      if (!workflow || !contract) throw new Error("optimize-init requires workflow and contract");
+      args.push(workflow, "--contract", contract);
+      if (typeof params.out === "string" && params.out.trim()) args.push("--out", params.out.trim());
+    } else {
+      const experiment = typeof params.experiment === "string" ? params.experiment.trim() : "";
+      if (!experiment) throw new Error(`${action} requires an experiment directory`);
+      args.push(experiment);
+      if (optimizeAction === "candidate") {
+        const candidateFile = typeof params.candidateFile === "string" ? params.candidateFile.trim() : "";
+        const parent = typeof params.parent === "string" ? params.parent.trim() : "";
+        const mechanism = typeof params.mechanism === "string" ? params.mechanism.trim() : "";
+        const hypothesis = typeof params.hypothesis === "string" ? params.hypothesis.trim() : "";
+        if (!candidateFile || !parent || !mechanism || !hypothesis) throw new Error("optimize-candidate requires candidateFile, parent, mechanism, and hypothesis");
+        args.push("--file", candidateFile, "--parent", parent, "--mechanism", mechanism, "--hypothesis", hypothesis);
+      }
+      if (optimizeAction === "status" && params.historyLimit !== undefined) args.push("--history-limit", String(params.historyLimit));
+      if (optimizeAction === "stop") {
+        const reason = typeof params.reason === "string" ? params.reason.trim() : "";
+        if (!reason) throw new Error("optimize-stop requires a reason");
+        args.push("--reason", reason);
+      }
+      if (optimizeAction === "promote" && typeof params.holdoutFile === "string" && params.holdoutFile.trim()) args.push("--holdout-file", params.holdoutFile.trim());
+    }
   }
   if (command === "create") {
     const name = typeof params.name === "string" ? params.name.trim() : "";
@@ -143,6 +175,7 @@ export function argumentsFor(params: Record<string, unknown>): string[] {
     args.push("--inputs", inputs, "--input-file", inputFile, "--models", models);
     if (params.parallel !== undefined) args.push("--parallel", String(params.parallel));
     if (params.limit !== undefined) args.push("--limit", String(params.limit));
+    if (typeof params.out === "string" && params.out.trim()) args.push("--out", params.out.trim());
   }
   if (command === "reports" && params.showReports === true) args.push("--show");
   if (command === "batch-status" || command === "batch-cancel") {
@@ -188,7 +221,17 @@ export default function piWorkflows(pi: ExtensionAPI) {
     ],
     parameters: Type.Object({
       action: StringEnum(ACTIONS),
-      workflow: Type.Optional(Type.String({ maxLength: 200 })),
+      workflow: Type.Optional(Type.String({ maxLength: 2_000 })),
+      compareRoot: Type.Optional(Type.String({ maxLength: 2_000 })),
+      experiment: Type.Optional(Type.String({ maxLength: 2_000 })),
+      contract: Type.Optional(Type.String({ maxLength: 2_000 })),
+      candidateFile: Type.Optional(Type.String({ maxLength: 2_000 })),
+      parent: Type.Optional(Type.String({ maxLength: 200 })),
+      mechanism: Type.Optional(Type.String({ maxLength: 200 })),
+      hypothesis: Type.Optional(Type.String({ maxLength: 4_000 })),
+      reason: Type.Optional(Type.String({ maxLength: 4_000 })),
+      holdoutFile: Type.Optional(Type.String({ maxLength: 2_000 })),
+      historyLimit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
       name: Type.Optional(Type.String({ maxLength: 200 })),
       directory: Type.Optional(Type.String({ maxLength: 2_000 })),
       model: Type.Optional(Type.String({ maxLength: 200 })),

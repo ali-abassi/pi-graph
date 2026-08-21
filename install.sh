@@ -94,7 +94,15 @@ mkdir -p "$stage/product"
   --exclude='./__pycache__' --exclude='./node_modules' --exclude='*/cache' --exclude='*/runs' \
   --exclude='*/batch-[0-9]*' \
   --exclude='./outputs' --exclude='./state' --exclude='./examples/.artifacts' \
+  --exclude='./install-manifest.json' \
   -cf - .) | (cd "$stage/product" && tar -xf -)
+
+# Bind the staged bytes to their source identity before activation. The helper
+# verifies source/stage product-digest equality and atomically writes the
+# manifest, which is itself excluded from the product digest.
+"$python_bin" "$stage/product/scripts/version_info.py" write-manifest \
+  --root "$stage/product" --source-root "$source_dir" \
+  --output "$stage/product/install-manifest.json" >/dev/null
 
 backup=""
 if [ -e "$install_dir" ]; then
@@ -107,10 +115,12 @@ fi
 rollback() {
   status=$?
   [ "$status" -eq 0 ] && return 0
+  rm -rf "$install_dir"
   if [ -n "$backup" ] && [ -d "$backup" ]; then
-    rm -rf "$install_dir"
     mv "$backup" "$install_dir"
     printf 'Install failed; restored the previous version.\n' >&2
+  else
+    printf 'Install failed; removed the partial installation.\n' >&2
   fi
   cleanup
 }
@@ -129,6 +139,21 @@ mv "$stage/product" "$install_dir"
 "$install_dir/.venv/bin/pip" --version >/dev/null
 
 "$install_dir/bin/piw" schema --json >/dev/null
+
+# Verify the final-location bytes and staged manifest before changing any CLI
+# or skill links. A failure is covered by the rollback trap above.
+"$install_dir/bin/piw" version --json | "$install_dir/.venv/bin/python" -c \
+  'import json,sys; x=json.load(sys.stdin); raise SystemExit(0 if x.get("ok") and x.get("install", {}).get("manifest_valid") and x.get("install", {}).get("self_integrity") else 1)'
+
+# Register only after the final tree and manifest verify, but before replacing
+# public links. If registration fails, the EXIT trap restores the old tree; if
+# a later link fails, registration still points at that restored path.
+if command -v pi >/dev/null 2>&1; then
+  pi install "$install_dir" --approve >/dev/null
+  printf 'Registered the Pi package (updates ~/.pi/agent/settings.json).\n'
+else
+  printf 'Pi is not on PATH; package registration skipped.\n' >&2
+fi
 
 # `ln -sfn` replaces a real file without warning, and when the target is an
 # existing real directory it silently creates the link *inside* it instead.
@@ -149,13 +174,6 @@ link "$install_dir/bin/piw" "$user_bin/piw"
 link "$install_dir" "$codex_skill"
 link "$install_dir" "$claude_skill"
 link "$install_dir" "$pi_skill"
-
-if command -v pi >/dev/null 2>&1; then
-  pi install "$install_dir" --approve >/dev/null
-  printf 'Registered the Pi package (updates ~/.pi/agent/settings.json).\n'
-else
-  printf 'Pi is not on PATH; package registration skipped.\n' >&2
-fi
 
 # Old installs are kept for rollback, not forever. This used to grow without
 # bound; 22 backups was ~490 MB on one machine.

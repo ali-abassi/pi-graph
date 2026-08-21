@@ -17,4 +17,5 @@ batch-*/
 examples/workflows/13-thousand-item-pipeline/corpus.jsonl
 *.egg-info/
 .pi-graph-runs/
+.agent/
 evidence/visualization/baseline/

@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pi-graph.optimization-event.v1",
+  "title": "Pi Graph append-only optimization event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "seq", "timestamp", "experiment_id", "type", "actor", "attempt", "payload", "prev_sha256", "event_sha256"],
+  "properties": {
+    "schema": {"const": "pi-graph.optimization-event.v1"},
+    "seq": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "experiment_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "type": {"enum": ["contract_validated", "artifact_initialized", "baseline_evaluated", "baseline_verified", "candidate_declared", "snapshot_created", "candidate_mutated", "gate_evaluated", "arm_evaluated", "candidate_decided", "rollback_verified", "incumbent_committed", "invalid_eval", "terminal", "holdout_access_granted", "holdout_evaluated", "promotion", "promotion_reverted", "budget_exhausted", "authority_required", "harden_eval", "blocked_by_infra", "interrupted", "resumed", "failed", "receipt_written"]},
+    "actor": {"type": "string", "minLength": 1, "maxLength": 200},
+    "attempt": {"type": "integer", "minimum": 1, "maximum": 1000000},
+    "payload": {"type": "object"},
+    "prev_sha256": {"$ref": "#/$defs/sha256"},
+    "event_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "allOf": [
+    {"if": {"properties": {"type": {"const": "contract_validated"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/contractValidated"}}}},
+    {"if": {"properties": {"type": {"const": "artifact_initialized"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/artifactInitialized"}}}},
+    {"if": {"properties": {"type": {"const": "baseline_evaluated"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/evaluation"}}}},
+    {"if": {"properties": {"type": {"const": "baseline_verified"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/baselineVerified"}}}},
+    {"if": {"properties": {"type": {"const": "candidate_declared"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/candidateDeclared"}}}},
+    {"if": {"properties": {"type": {"const": "snapshot_created"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/snapshotCreated"}}}},
+    {"if": {"properties": {"type": {"const": "candidate_mutated"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/candidateMutated"}}}},
+    {"if": {"properties": {"type": {"const": "gate_evaluated"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/gateEvaluated"}}}},
+    {"if": {"properties": {"type": {"const": "arm_evaluated"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/armEvaluated"}}}},
+    {"if": {"properties": {"type": {"const": "candidate_decided"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/candidateDecided"}}}},
+    {"if": {"properties": {"type": {"const": "rollback_verified"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/rollbackVerified"}}}},
+    {"if": {"properties": {"type": {"const": "incumbent_committed"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/incumbentCommitted"}}}},
+    {"if": {"properties": {"type": {"const": "invalid_eval"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/invalidEval"}}}},
+    {"if": {"properties": {"type": {"const": "terminal"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/terminal"}}}},
+    {"if": {"properties": {"type": {"const": "holdout_access_granted"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/holdoutAccess"}}}},
+    {"if": {"properties": {"type": {"const": "holdout_evaluated"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/evaluation"}}}},
+    {"if": {"properties": {"type": {"const": "promotion"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/promotion"}}}},
+    {"if": {"properties": {"type": {"const": "promotion_reverted"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/promotionReverted"}}}},
+    {"if": {"properties": {"type": {"const": "budget_exhausted"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/budgetExhausted"}}}},
+    {"if": {"properties": {"type": {"const": "authority_required"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/authorityRequired"}}}},
+    {"if": {"properties": {"type": {"const": "harden_eval"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/reasonEvidence"}}}},
+    {"if": {"properties": {"type": {"const": "blocked_by_infra"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/operationReason"}}}},
+    {"if": {"properties": {"type": {"const": "interrupted"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/operationReason"}}}},
+    {"if": {"properties": {"type": {"const": "resumed"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/resumed"}}}},
+    {"if": {"properties": {"type": {"const": "failed"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/failed"}}}},
+    {"if": {"properties": {"type": {"const": "receipt_written"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/pathHash"}}}}
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "finite": {"type": "number", "minimum": -1e308, "maximum": 1e308},
+    "pathHash": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1, "maxLength": 4096}, "sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "evidence": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/pathHash"}},
+    "usage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tokens", "cost_usd", "wall_seconds"],
+      "properties": {
+        "tokens": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "cost_usd": {"type": "number", "minimum": 0, "maximum": 1e308},
+        "wall_seconds": {"type": "number", "minimum": 0, "maximum": 1e308}
+      }
+    },
+    "metrics": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "primary", "coverage", "gates", "usage", "uncertainty"],
+      "properties": {
+        "schema": {"const": "pi-graph.optimization-metrics.v1"},
+        "primary": {"$ref": "#/$defs/finite"},
+        "coverage": {
+          "type": "object", "additionalProperties": false,
+          "required": ["expected", "scored"],
+          "properties": {"expected": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}, "scored": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}}
+        },
+        "gates": {"type": "object", "additionalProperties": false, "patternProperties": {"^.{1,100}$": {"type": "boolean"}}, "maxProperties": 100},
+        "usage": {"$ref": "#/$defs/usage"},
+        "uncertainty": {
+          "type": "object", "additionalProperties": false,
+          "required": ["low", "high"],
+          "properties": {"low": {"$ref": "#/$defs/finite"}, "high": {"$ref": "#/$defs/finite"}}
+        }
+      }
+    },
+    "contractValidated": {
+      "type": "object", "additionalProperties": false,
+      "required": ["contract_sha256", "manifest_sha256", "runtime_fingerprint_sha256"],
+      "properties": {"contract_sha256": {"$ref": "#/$defs/sha256"}, "manifest_sha256": {"$ref": "#/$defs/sha256"}, "runtime_fingerprint_sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "artifactInitialized": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifact_sha256", "semantic_sha256", "snapshot"],
+      "properties": {"artifact_sha256": {"$ref": "#/$defs/sha256"}, "semantic_sha256": {"$ref": "#/$defs/sha256"}, "snapshot": {"$ref": "#/$defs/pathHash"}}
+    },
+    "evaluation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "dataset", "metrics", "gates_passed", "usage", "evidence"],
+      "properties": {
+        "candidate_id": {"type": ["string", "null"], "maxLength": 200},
+        "dataset": {"enum": ["development", "holdout"]},
+        "metrics": {"$ref": "#/$defs/metrics"},
+        "gates_passed": {"type": "boolean"},
+        "usage": {"$ref": "#/$defs/usage"},
+        "evidence": {"$ref": "#/$defs/evidence"}
+      }
+    },
+    "baselineVerified": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifact_sha256", "snapshot_sha256", "metrics"],
+      "properties": {"artifact_sha256": {"$ref": "#/$defs/sha256"}, "snapshot_sha256": {"$ref": "#/$defs/sha256"}, "metrics": {"$ref": "#/$defs/metrics"}}
+    },
+    "candidateDeclared": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "parent_id", "hypothesis", "mechanism"],
+      "properties": {
+        "candidate_id": {"type": "string", "minLength": 1, "maxLength": 200},
+        "parent_id": {"type": "string", "minLength": 1, "maxLength": 200},
+        "hypothesis": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "mechanism": {"type": "string", "minLength": 1, "maxLength": 100}
+      }
+    },
+    "snapshotCreated": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "artifact_sha256", "snapshot"],
+      "properties": {"candidate_id": {"type": "string", "minLength": 1, "maxLength": 200}, "artifact_sha256": {"$ref": "#/$defs/sha256"}, "snapshot": {"$ref": "#/$defs/pathHash"}}
+    },
+    "candidateMutated": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "artifact_sha256", "semantic_sha256", "diff_sha256"],
+      "properties": {"candidate_id": {"type": "string", "minLength": 1, "maxLength": 200}, "artifact_sha256": {"$ref": "#/$defs/sha256"}, "semantic_sha256": {"$ref": "#/$defs/sha256"}, "diff_sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "gateEvaluated": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "gate_id", "passed", "receipt"],
+      "properties": {"candidate_id": {"type": "string", "minLength": 1, "maxLength": 200}, "gate_id": {"type": "string", "minLength": 1, "maxLength": 100}, "passed": {"type": "boolean"}, "receipt": {"$ref": "#/$defs/pathHash"}}
+    },
+    "armEvaluated": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "arm", "dataset", "metrics", "evidence"],
+      "properties": {"candidate_id": {"type": "string", "minLength": 1, "maxLength": 200}, "arm": {"enum": ["baseline", "candidate"]}, "dataset": {"enum": ["development", "holdout"]}, "metrics": {"$ref": "#/$defs/metrics"}, "evidence": {"$ref": "#/$defs/evidence"}}
+    },
+    "candidateDecided": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "decision", "reason", "trusted_score", "metrics"],
+      "properties": {
+        "candidate_id": {"type": "string", "minLength": 1, "maxLength": 200},
+        "decision": {"enum": ["keep", "discard", "gate_failed", "inconclusive", "blocked_by_infra", "invalid_eval", "harden_eval"]},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "trusted_score": {"type": "boolean"},
+        "metrics": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/metrics"}]}
+      }
+    },
+    "rollbackVerified": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "restored_sha256", "snapshot_sha256"],
+      "properties": {"candidate_id": {"type": "string", "minLength": 1, "maxLength": 200}, "restored_sha256": {"$ref": "#/$defs/sha256"}, "snapshot_sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "incumbentCommitted": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "parent_id", "artifact_sha256", "snapshot_sha256", "score"],
+      "properties": {"candidate_id": {"type": "string", "minLength": 1, "maxLength": 200}, "parent_id": {"type": "string", "minLength": 1, "maxLength": 200}, "artifact_sha256": {"$ref": "#/$defs/sha256"}, "snapshot_sha256": {"$ref": "#/$defs/sha256"}, "score": {"$ref": "#/$defs/finite"}}
+    },
+    "invalidEval": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "reason", "surface", "expected_sha256", "actual_sha256"],
+      "properties": {"candidate_id": {"type": ["string", "null"], "maxLength": 200}, "reason": {"type": "string", "minLength": 1, "maxLength": 4000}, "surface": {"type": "string", "minLength": 1, "maxLength": 4096}, "expected_sha256": {"$ref": "#/$defs/sha256"}, "actual_sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "terminal": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "reason", "incumbent_id", "artifact_sha256"],
+      "properties": {"status": {"enum": ["plateau", "target_achieved", "budget_exhausted", "blocked_by_infra", "harden_eval", "authority_required", "stopped_by_user", "failed"]}, "reason": {"type": "string", "minLength": 1, "maxLength": 4000}, "incumbent_id": {"type": "string", "minLength": 1, "maxLength": 200}, "artifact_sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "holdoutAccess": {
+      "type": "object", "additionalProperties": false,
+      "required": ["holdout_sha256", "candidate_id", "use"],
+      "properties": {"holdout_sha256": {"$ref": "#/$defs/sha256"}, "candidate_id": {"type": "string", "minLength": 1, "maxLength": 200}, "use": {"const": 1}}
+    },
+    "promotion": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "artifact_sha256", "holdout_sha256", "metrics", "gates_passed"],
+      "properties": {"candidate_id": {"type": "string", "minLength": 1, "maxLength": 200}, "artifact_sha256": {"$ref": "#/$defs/sha256"}, "holdout_sha256": {"$ref": "#/$defs/sha256"}, "metrics": {"$ref": "#/$defs/metrics"}, "gates_passed": {"const": true}}
+    },
+    "promotionReverted": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "reason", "restored_incumbent_id", "restored_sha256"],
+      "properties": {"candidate_id": {"type": "string", "minLength": 1, "maxLength": 200}, "reason": {"type": "string", "minLength": 1, "maxLength": 4000}, "restored_incumbent_id": {"type": "string", "minLength": 1, "maxLength": 200}, "restored_sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "budgetExhausted": {
+      "type": "object", "additionalProperties": false,
+      "required": ["budget", "limit", "actual"],
+      "properties": {"budget": {"enum": ["candidates", "wall_seconds", "tokens", "cost_usd", "failures", "candidate_wall_seconds", "candidate_tokens", "candidate_cost_usd", "promotion_wall_seconds", "promotion_tokens", "promotion_cost_usd"]}, "limit": {"type": "number", "minimum": 0, "maximum": 1e308}, "actual": {"type": "number", "minimum": 0, "maximum": 1e308}}
+    },
+    "authorityRequired": {
+      "type": "object", "additionalProperties": false,
+      "required": ["effect", "reason"],
+      "properties": {"effect": {"type": "string", "minLength": 1, "maxLength": 200}, "reason": {"type": "string", "minLength": 1, "maxLength": 4000}}
+    },
+    "reasonEvidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["reason", "evidence"],
+      "properties": {"reason": {"type": "string", "minLength": 1, "maxLength": 4000}, "evidence": {"$ref": "#/$defs/evidence"}}
+    },
+    "operationReason": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operation", "reason"],
+      "properties": {"operation": {"type": "string", "minLength": 1, "maxLength": 200}, "reason": {"type": "string", "minLength": 1, "maxLength": 4000}}
+    },
+    "resumed": {
+      "type": "object", "additionalProperties": false,
+      "required": ["previous_status", "last_committed_seq", "resume_count"],
+      "properties": {"previous_status": {"enum": ["failed", "interrupted"]}, "last_committed_seq": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}, "resume_count": {"type": "integer", "minimum": 1, "maximum": 1000000}}
+    },
+    "failed": {
+      "type": "object", "additionalProperties": false,
+      "required": ["code", "reason"],
+      "properties": {"code": {"type": "string", "minLength": 1, "maxLength": 200}, "reason": {"type": "string", "minLength": 1, "maxLength": 4000}}
+    }
+  }
+}

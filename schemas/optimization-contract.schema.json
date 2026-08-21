@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pi-graph.optimization-contract.v1",
+  "title": "Pi Graph deterministic optimization contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "evaluation_version", "route", "objective", "boundaries", "development", "holdout", "evaluation", "execution", "budgets", "promotion"],
+  "properties": {
+    "schema": {"const": "pi-graph.optimization-contract.v1"},
+    "evaluation_version": {"type": "string", "minLength": 1, "maxLength": 200},
+    "route": {"enum": ["candidate_loop", "bounded_autonomous_search"]},
+    "objective": {
+      "type": "object", "additionalProperties": false,
+      "required": ["description", "unit", "primary_metric", "direction", "minimum_gain", "definition_of_done", "non_goals"],
+      "properties": {
+        "description": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "unit": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "primary_metric": {"type": "string", "minLength": 1, "maxLength": 200},
+        "direction": {"enum": ["maximize", "minimize"]},
+        "minimum_gain": {"type": "number", "minimum": 0, "maximum": 1e308},
+        "definition_of_done": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "non_goals": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 1000}, "maxItems": 100, "uniqueItems": true}
+      }
+    },
+    "boundaries": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mutable", "protected_files", "authorized_effects", "rollback", "network"],
+      "properties": {
+        "mutable": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"$ref": "#/$defs/mutable"}},
+        "protected_files": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/source"}},
+        "authorized_effects": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 200}},
+        "rollback": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "network": {"enum": ["denied", "allowed"]}
+      }
+    },
+    "development": {"$ref": "#/$defs/corpusWithPath"},
+    "holdout": {"$ref": "#/$defs/corpusDigest"},
+    "evaluation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["evaluator", "parser", "hard_gates", "repeats", "seeds", "uncertainty", "tie_breakers"],
+      "properties": {
+        "evaluator": {"$ref": "#/$defs/program"},
+        "parser": {"$ref": "#/$defs/program"},
+        "hard_gates": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/gate"}},
+        "repeats": {"type": "integer", "minimum": 1, "maximum": 10000},
+        "seeds": {"type": "array", "minItems": 1, "maxItems": 10000, "uniqueItems": true, "items": {"type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991}},
+        "uncertainty": {
+          "type": "object", "additionalProperties": false,
+          "required": ["method", "minimum_repeats"],
+          "properties": {
+            "method": {"enum": ["none", "interval"]},
+            "minimum_repeats": {"type": "integer", "minimum": 1, "maximum": 10000}
+          }
+        },
+        "tie_breakers": {"type": "array", "maxItems": 3, "uniqueItems": true, "items": {"enum": ["lower_cost", "lower_tokens", "lower_wall_seconds"]}}
+      }
+    },
+    "execution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["provider", "model", "thinking", "tools", "environment", "dependency_files", "batch", "cache"],
+      "properties": {
+        "provider": {"type": "string", "minLength": 1, "maxLength": 300},
+        "model": {"type": "string", "minLength": 1, "maxLength": 300},
+        "thinking": {"type": "string", "minLength": 1, "maxLength": 100},
+        "tools": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 200}},
+        "environment": {
+          "type": "object", "additionalProperties": false,
+          "patternProperties": {"^[A-Za-z_][A-Za-z0-9_]*$": {"type": "string", "maxLength": 4000}},
+          "maxProperties": 100
+        },
+        "dependency_files": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/source"}},
+        "batch": {
+          "type": "object", "additionalProperties": false,
+          "required": ["parallel", "require_all", "item_timeout_seconds"],
+          "properties": {
+            "parallel": {"type": "integer", "minimum": 1, "maximum": 32},
+            "require_all": {"const": true},
+            "item_timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 1e308}
+          }
+        },
+        "cache": {"const": false}
+      }
+    },
+    "budgets": {
+      "type": "object", "additionalProperties": false,
+      "required": ["max_candidates", "max_wall_seconds", "max_tokens", "max_cost_usd", "max_failures", "max_consecutive_non_keeps", "per_candidate", "promotion"],
+      "properties": {
+        "max_candidates": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "max_wall_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 1e308},
+        "max_tokens": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "max_cost_usd": {"type": "number", "minimum": 0, "maximum": 1e308},
+        "max_failures": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "max_consecutive_non_keeps": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "per_candidate": {"$ref": "#/$defs/armBudget"},
+        "promotion": {"$ref": "#/$defs/promotionBudget"}
+      }
+    },
+    "promotion": {
+      "type": "object", "additionalProperties": false,
+      "required": ["minimum_holdout_score", "maximum_drop_from_selected_dev", "require_all_gates"],
+      "properties": {
+        "minimum_holdout_score": {"type": "number", "minimum": -1e308, "maximum": 1e308},
+        "maximum_drop_from_selected_dev": {"type": "number", "minimum": 0, "maximum": 1e308},
+        "require_all_gates": {"const": true}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "relativePath": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {"path": {"$ref": "#/$defs/relativePath"}, "sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "mutable": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mechanism", "pointer"],
+      "properties": {
+        "mechanism": {"type": "string", "minLength": 1, "maxLength": 100},
+        "pointer": {"type": "string", "minLength": 1, "maxLength": 2000, "pattern": "^(?:/(?:[^~/]|~[01])*)+$"}
+      }
+    },
+    "corpusDigest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sha256", "format", "count"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "format": {"const": "jsonl"},
+        "count": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}
+      }
+    },
+    "corpusWithPath": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "format", "count"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relativePath"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "format": {"const": "jsonl"},
+        "count": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}
+      }
+    },
+    "program": {
+      "type": "object", "additionalProperties": false,
+      "required": ["argv", "sources", "timeout_seconds"],
+      "properties": {
+        "argv": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "string", "minLength": 1, "maxLength": 4096}},
+        "sources": {"type": "array", "minItems": 1, "maxItems": 1000, "items": {"$ref": "#/$defs/source"}},
+        "timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 1e308}
+      }
+    },
+    "gate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "argv", "timeout_seconds"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"},
+        "argv": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "string", "minLength": 1, "maxLength": 4096}},
+        "timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 1e308}
+      }
+    },
+    "promotionBudget": {
+      "type": "object", "additionalProperties": false,
+      "required": ["max_wall_seconds", "max_tokens", "max_cost_usd"],
+      "properties": {
+        "max_wall_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 1e308},
+        "max_tokens": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "max_cost_usd": {"type": "number", "minimum": 0, "maximum": 1e308}
+      }
+    },
+    "armBudget": {
+      "type": "object", "additionalProperties": false,
+      "required": ["max_wall_seconds", "max_tokens", "max_cost_usd", "max_failures"],
+      "properties": {
+        "max_wall_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 1e308},
+        "max_tokens": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "max_cost_usd": {"type": "number", "minimum": 0, "maximum": 1e308},
+        "max_failures": {"type": "integer", "minimum": 0, "maximum": 1000000}
+      }
+    }
+  }
+}

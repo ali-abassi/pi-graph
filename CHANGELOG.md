@@ -4,6 +4,13 @@ All notable changes to pi graph are documented here.
 
 ## Unreleased
 
+### Deterministic workflow optimization
+
+- `piw optimize` now freezes an experiment contract, evaluates the untouched baseline through the canonical batch path, accepts one-mechanism candidates, and makes uncertainty-aware keep/revert decisions with byte-perfect rollback.
+- Experiments use one-writer locks, immutable source/runtime fingerprints, a fsynced hash-chained ledger, finite candidate/time/token/cost/failure/plateau stops, committed-prefix recovery, and bounded machine-readable responses.
+- Private holdout bytes remain unstaged until terminal promotion, can be reserved at most once, and produce a signed local receipt without committing, pushing, merging, deploying, or writing production state.
+- `piw version --json` and doctor expose source/install fingerprints; installs receive an atomic integrity manifest. `piw eval --json` now emits one JSON receipt.
+
 ### Durable local runs
 
 - New runs freeze exact workflow/input identity and atomically project a

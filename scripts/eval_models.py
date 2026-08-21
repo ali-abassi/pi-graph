@@ -36,6 +36,7 @@ def main() -> int:
     ap.add_argument("--parallel", type=int, default=2)
     ap.add_argument("--limit", type=int)
     ap.add_argument("--out", type=Path)
+    ap.add_argument("--json", action="store_true", help="emit one machine-readable receipt")
     args, extra = ap.parse_known_args()
     extra = [*extra, "--no-cache"]  # paired comparison: no cross-run reuse
 
@@ -48,7 +49,8 @@ def main() -> int:
     eval_dir = (args.out or args.steps_file.parent /
                 f"eval-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}").resolve()
     eval_dir.mkdir(parents=True, exist_ok=True)
-    print(f"eval: {len(models)} model(s) x {len(items)} input(s) · dir={eval_dir}", flush=True)
+    if not args.json:
+        print(f"eval: {len(models)} model(s) x {len(items)} input(s) · dir={eval_dir}", flush=True)
 
     results: list[dict] = []
     with cf.ThreadPoolExecutor(max_workers=args.parallel) as pool:
@@ -64,8 +66,9 @@ def main() -> int:
             r = fut.result()
             r["model"] = model
             results.append(r)
-            print(f"  {model} · {iid}: {'PASS' if r['passed'] else 'FAIL'} · "
-                  f"${r['cost']:.4f} · {r['wall_s']}s", flush=True)
+            if not args.json:
+                print(f"  {model} · {iid}: {'PASS' if r['passed'] else 'FAIL'} · "
+                      f"${r['cost']:.4f} · {r['wall_s']}s", flush=True)
 
     (eval_dir / "eval.json").write_text(json.dumps(results, indent=1))
     lines = [f"# Model eval — {args.steps_file.name} · {len(items)} input(s)", "",
@@ -84,8 +87,23 @@ def main() -> int:
             c=statistics.mean(r["cost"] for r in rs),
             w=statistics.mean(r["wall_s"] for r in rs)))
     report = "\n".join(lines) + "\n"
-    (eval_dir / "eval-report.md").write_text(report)
-    print("\n" + report)
+    report_path = eval_dir / "eval-report.md"
+    report_path.write_text(report)
+    if args.json:
+        summaries = []
+        for model in models:
+            rows = [row for row in results if row["model"] == model]
+            summaries.append({
+                "model": model, "total": len(rows), "passed": sum(row["passed"] for row in rows),
+                "tokens": sum(row["tokens"] for row in rows),
+                "cost": sum(row["cost"] for row in rows),
+                "wall_seconds": sum(row["wall_s"] for row in rows),
+            })
+        print(json.dumps({"schema": "pi-graph.eval.v1", "ok": all(row["passed"] for row in results),
+                          "eval_dir": str(eval_dir), "results": str(eval_dir / "eval.json"),
+                          "report": str(report_path), "models": summaries}, separators=(",", ":")))
+    else:
+        print("\n" + report)
     return 0
 
 

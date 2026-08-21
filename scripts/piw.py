@@ -46,6 +46,13 @@ import yaml
 
 import control
 import graph as pygraph
+from version_info import VersionInfoError, build_version_info
+from optimization_bundle import OptimizationBundle, OptimizationBusy, OptimizationError, sha256_file
+from optimization_runner import (
+    promote as optimize_promote, read_receipt as optimize_read_receipt,
+    resume as optimize_resume, run_baseline as optimize_baseline,
+    run_candidate as optimize_candidate, stop_experiment as optimize_stop,
+)
 
 DAEMON = f"http://127.0.0.1:{control.DEFAULT_PORT}"
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "workflow.schema.json"
@@ -79,7 +86,7 @@ def resolve(identifier: str) -> dict[str, Any] | None:
     candidate = Path(identifier).expanduser()
     if candidate.exists():
         path = (candidate / "steps.yaml" if candidate.is_dir() else candidate).resolve()
-        if path.name != "steps.yaml" or not path.is_file():
+        if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
             return None
         known = next((item for item in control.discover_workflows() if item["path"] == str(path)), None)
         if known:
@@ -1485,6 +1492,10 @@ def cmd_eval(args) -> int:
         extra += ["--parallel", str(args.parallel)]
     if args.limit:
         extra += ["--limit", str(args.limit)]
+    if args.out:
+        extra += ["--out", args.out]
+    if args.json:
+        extra.append("--json")
     return _run_skill("eval_models.py", workflow, extra)
 
 
@@ -1649,6 +1660,40 @@ def cmd_path(args) -> int:
 # --------------------------------------------------------------- product ops
 
 
+def cmd_version(args) -> int:
+    product_root = Path(__file__).resolve().parent.parent
+    try:
+        payload = build_version_info(product_root, args.compare_root)
+    except VersionInfoError as error:
+        payload = {
+            "schema": "pi-graph.version.v1", "ok": False,
+            "product_version": None, "executing": None, "runtime": None,
+            "install": None, "comparison": None, "drift": [],
+            "error": {"code": "invalid_root", "message": str(error)},
+        }
+        if args.json:
+            out(json.dumps(payload, separators=(",", ":")))
+        else:
+            out(f"pi graph version unavailable · {error}")
+        return 2
+    if args.json:
+        out(json.dumps(payload, separators=(",", ":")))
+    else:
+        executing = payload["executing"]
+        out(f"pi graph {payload['product_version']} · {payload['install']['kind']}")
+        out(f"  root     {executing['root']}")
+        out(f"  revision {executing['revision'] or 'unavailable'}"
+            + (" (dirty)" if executing["dirty"] else ""))
+        out(f"  tree     {executing['tree_sha256']}")
+        if payload["comparison"]:
+            out(f"  compare  {payload['comparison']['root']}")
+        for item in payload["drift"]:
+            out(f"  [drift:{item['code']}] {item['message']}")
+        if not payload["drift"]:
+            out("  drift    none")
+    return 0 if payload["ok"] else 1
+
+
 def cmd_doctor(args) -> int:
     checks: list[dict[str, Any]] = []
 
@@ -1679,6 +1724,32 @@ def cmd_doctor(args) -> int:
     check("runner", control.WORKFLOW_RUNNER.is_file(), str(control.WORKFLOW_RUNNER),
           fix="the install looks incomplete; re-run ./install.sh")
 
+    product_root = Path(__file__).resolve().parent.parent
+    try:
+        version_identity = build_version_info(product_root)
+        version_ok = bool(version_identity["ok"])
+        identity_drift = [item["code"] for item in version_identity["drift"]]
+        comparison_ok = not identity_drift
+        version_detail = (
+            f"{version_identity['product_version']} · {version_identity['install']['kind']} · "
+            f"tree {version_identity['executing']['tree_sha256'][:12]}"
+        )
+        comparison_detail = (
+            "current" if version_identity["comparison"] is None
+            else f"{version_identity['comparison']['root']} · "
+                 + ("current" if comparison_ok else "drift: " + ", ".join(identity_drift))
+        )
+    except VersionInfoError as error:
+        version_identity = None
+        version_ok = False
+        comparison_ok = False
+        version_detail = str(error)
+        comparison_detail = str(error)
+    check("version-integrity", version_ok, version_detail,
+          fix="product identity is stale or tampered; reinstall from a trusted source checkout with ./install.sh")
+    check("install-current", comparison_ok, comparison_detail,
+          fix="the installed copy differs from this source or its manifest; rerun ./install.sh from this checkout")
+
     pi_bin = shutil.which("pi")
     pi_version = "missing"
     pi_ok = False
@@ -1695,7 +1766,6 @@ def cmd_doctor(args) -> int:
           fix="model steps need Pi 0.80.10 or newer: "
               "npm install -g @earendil-works/pi-coding-agent, then `pi` and /login. "
               "Shell-only workflows run without it.")
-    product_root = Path(__file__).resolve().parent.parent
     pi_package_ok = False
     settings = Path.home() / ".pi" / "agent" / "settings.json"
     try:
@@ -1763,6 +1833,7 @@ def cmd_doctor(args) -> int:
         "ok": core_ok,
         "integrations_ok": integrations_ok,
         "product_root": str(product_root),
+        "version": version_identity,
         "checks": checks,
     }
     if args.json:
@@ -1968,6 +2039,98 @@ def cmd_automation(args) -> int:
     return 0
 
 
+def _optimize_response(command: str, bundle: OptimizationBundle | None, result: Any,
+                       *, ok: bool = True, error: dict[str, Any] | None = None) -> dict[str, Any]:
+    state = bundle.state() if bundle is not None and (bundle.path / "events.jsonl").exists() else None
+    return {
+        "schema": "pi-graph.optimize-response.v1", "ok": ok, "command": command,
+        "experiment_id": bundle.experiment_id if bundle is not None else None,
+        "state": state["status"] if state else None, "result": result if ok else None,
+        "counters": state["budget"] if state else {},
+        "paths": {"experiment": str(bundle.path)} if bundle is not None else {},
+        "next": _optimize_next(state["status"] if state else None),
+        **({"error": error} if error else {}),
+    }
+
+
+def _optimize_next(status: str | None) -> list[str]:
+    return {
+        "created": ["baseline"], "baseline_verified": ["candidate", "stop"],
+        "searching": ["candidate", "stop"], "plateau": ["promote"],
+        "budget_exhausted": ["promote"], "stopped_by_user": ["promote"],
+        "promotion_running": ["resume"], "promoted": ["receipt"],
+        "promotion_reverted": ["receipt"],
+    }.get(status, [])
+
+
+def _emit_optimize_json(payload: dict[str, Any]) -> None:
+    encoded = json.dumps(payload, separators=(",", ":"))
+    if len(encoded.encode("utf-8")) > 65_536:
+        payload = dict(payload)
+        payload["result"] = {"truncated": True,
+                             "message": "response exceeded 65536 bytes; inspect the experiment evidence paths"}
+        encoded = json.dumps(payload, separators=(",", ":"))
+    if len(encoded.encode("utf-8")) > 65_536:
+        raise OptimizationError("bounded optimize response still exceeds 65536 bytes")
+    out(encoded)
+
+
+def cmd_optimize(args) -> int:
+    bundle: OptimizationBundle | None = None
+    command = args.optimize_command
+    try:
+        if command == "init":
+            workflow = need(args.workflow)
+            source = Path(workflow["path"]).resolve()
+            out_dir = (Path(args.out).expanduser().resolve() if args.out else
+                       source.parent / "optimization" /
+                       f"{source.stem}-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{os.urandom(3).hex()}")
+            bundle = OptimizationBundle.init(source, Path(args.contract), out_dir)
+            result, exit_code = {"manifest_sha256": sha256_file(bundle.path / "manifest.json")}, 0
+        else:
+            bundle = OptimizationBundle(Path(args.experiment))
+            if command == "baseline": result, exit_code = optimize_baseline(bundle), 0
+            elif command == "candidate":
+                result, exit_code = optimize_candidate(bundle, Path(args.file), args.parent,
+                                                        args.mechanism, args.hypothesis)
+            elif command == "status":
+                bundle.verify_integrity()
+                records = bundle.ledger.replay()[-args.history_limit:]
+                result = {"status": bundle.status(), "history": [
+                    {"seq": row["seq"], "timestamp": row["timestamp"], "type": row["type"],
+                     "candidate_id": row["payload"].get("candidate_id"),
+                     "decision": row["payload"].get("decision")} for row in records]}
+                exit_code = 0
+            elif command == "resume": result, exit_code = optimize_resume(bundle), 0
+            elif command == "stop": result, exit_code = optimize_stop(bundle, args.reason), 0
+            elif command == "promote":
+                result, exit_code = optimize_promote(bundle, Path(args.holdout_file) if args.holdout_file else None)
+            elif command == "receipt": result, exit_code = optimize_read_receipt(bundle)
+            else: raise OptimizationError(f"unsupported optimize command: {command}")
+        payload = _optimize_response(command, bundle, result)
+        if args.json:
+            _emit_optimize_json(payload)
+        else:
+            out(f"{command}: {payload['state']} · {payload['experiment_id']}")
+            out(json.dumps(result, indent=2, sort_keys=True))
+        return exit_code
+    except OptimizationBusy as caught:
+        code, exit_code, error_message = "E_BUSY", 4, str(caught)
+    except OptimizationError as caught:
+        error_message = str(caught)
+        code = "E_DRIFT" if any(word in error_message for word in ("fingerprint", "integrity", "hash mismatch", "tamper")) else "E_CONTRACT"
+        exit_code = 3 if code == "E_DRIFT" else 2
+    except (OSError, ValueError, json.JSONDecodeError) as caught:
+        code, exit_code, error_message = "E_USAGE", 2, str(caught)
+    payload = _optimize_response(command, bundle, None, ok=False,
+                                 error={"code": code, "message": error_message[:4000], "field": None})
+    if args.json:
+        _emit_optimize_json(payload)
+    else:
+        print(f"{code}: {error_message}", file=sys.stderr)
+    return exit_code
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="piw",
@@ -1995,6 +2158,36 @@ def build_parser() -> argparse.ArgumentParser:
     add_action.add_argument("--needs", help="comma-separated existing steps supplying the action input")
 
     add("doctor", "verify the standalone product and optional integrations", workflow=False)
+
+    version = add("version", "show product, install, and source identity", workflow=False)
+    version.add_argument("--compare-root", help="compare against another source or installed product root")
+
+    optimize = sub.add_parser("optimize", help="run a bounded evidence-gated workflow improvement experiment")
+    optimize_sub = optimize.add_subparsers(dest="optimize_command", required=True)
+    def add_optimize(name: str, help_text: str, experiment: bool = True):
+        node = optimize_sub.add_parser(name, help=help_text)
+        if experiment:
+            node.add_argument("experiment", help="exact optimization experiment directory")
+        node.add_argument("--json", action="store_true", help="one bounded machine-readable response")
+        return node
+    optimize_init = add_optimize("init", "freeze an optimization contract without running it", False)
+    optimize_init.add_argument("workflow", help="workflow id, unique substring, or steps.yaml path")
+    optimize_init.add_argument("--contract", required=True, help="frozen optimization contract JSON")
+    optimize_init.add_argument("--out", help="new experiment directory")
+    add_optimize("baseline", "evaluate the untouched baseline")
+    optimize_candidate_parser = add_optimize("candidate", "evaluate one declared one-mechanism candidate")
+    optimize_candidate_parser.add_argument("--file", required=True, help="candidate workflow YAML")
+    optimize_candidate_parser.add_argument("--parent", required=True, help="current incumbent id")
+    optimize_candidate_parser.add_argument("--mechanism", required=True, help="declared mutable mechanism id")
+    optimize_candidate_parser.add_argument("--hypothesis", required=True, help="bounded candidate hypothesis")
+    optimize_status = add_optimize("status", "verify and inspect bounded experiment state")
+    optimize_status.add_argument("--history-limit", type=int, choices=range(1, 101), default=20)
+    add_optimize("resume", "recover only from committed experiment evidence")
+    optimize_stop_parser = add_optimize("stop", "stop search before one-time promotion")
+    optimize_stop_parser.add_argument("--reason", required=True)
+    optimize_promote_parser = add_optimize("promote", "use the private holdout once and emit a receipt")
+    optimize_promote_parser.add_argument("--holdout-file", help="private corpus; required only for a dev winner")
+    add_optimize("receipt", "verify and return the terminal receipt")
 
     create = add("create", "scaffold a valid input-to-artifact workflow", workflow=False)
     create.add_argument("name")
@@ -2086,6 +2279,7 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--models", required=True, help="comma-separated model ids")
     evaluate.add_argument("--parallel", type=int)
     evaluate.add_argument("--limit", type=int)
+    evaluate.add_argument("--out", help="exact evaluation output directory")
 
     reports = add("reports", "list batch and eval reports")
     reports.add_argument("-n", "--limit", type=int, default=10)
@@ -2168,7 +2362,8 @@ COMMANDS = {
     "runs": cmd_runs, "show": cmd_show, "stats": cmd_stats, "path": cmd_path,
     "set": cmd_set, "detail": cmd_detail, "compare": cmd_compare, "batch": cmd_batch,
     "batch-status": cmd_batch_status, "batch-cancel": cmd_batch_cancel, "eval": cmd_eval,
-    "reports": cmd_reports, "doctor": cmd_doctor, "create": cmd_create,
+    "reports": cmd_reports, "doctor": cmd_doctor, "version": cmd_version, "optimize": cmd_optimize,
+    "create": cmd_create,
     "schedule": cmd_schedule, "automations": cmd_automations,
     "automation": cmd_automation,
 }

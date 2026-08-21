@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pi-graph.optimization-state.v1",
+  "title": "Pi Graph optimization state v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "experiment_id", "status", "baseline", "incumbent", "candidate_cursor", "consecutive_non_keeps", "holdout_uses", "budget", "resume_count", "pending_operation", "terminal_reason", "last_event_seq", "updated_at"],
+  "properties": {
+    "schema": {"const": "pi-graph.optimization-state.v1"},
+    "experiment_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "status": {"enum": ["created", "contract_validating", "contract_rejected", "baseline_running", "baseline_verified", "searching", "plateau", "target_achieved", "budget_exhausted", "blocked_by_infra", "harden_eval", "authority_required", "stopped_by_user", "promotion_running", "promoted", "promotion_reverted", "retained_incumbent", "failed", "interrupted", "resuming"]},
+    "baseline": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/artifactState"}]},
+    "incumbent": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/artifactState"}]},
+    "candidate_cursor": {"type": "integer", "minimum": 0, "maximum": 1000000},
+    "consecutive_non_keeps": {"type": "integer", "minimum": 0, "maximum": 1000000},
+    "holdout_uses": {"type": "integer", "minimum": 0, "maximum": 1},
+    "budget": {"$ref": "#/$defs/budgetState"},
+    "resume_count": {"type": "integer", "minimum": 0, "maximum": 1000000},
+    "pending_operation": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["id", "type", "stage", "candidate_id", "started_at"],
+          "properties": {
+            "id": {"type": "string", "minLength": 1, "maxLength": 200},
+            "type": {"enum": ["baseline", "candidate", "rollback", "commit", "holdout", "promotion"]},
+            "stage": {"type": "string", "minLength": 1, "maxLength": 200},
+            "candidate_id": {"type": ["string", "null"], "maxLength": 200},
+            "started_at": {"type": "string", "format": "date-time"}
+          }
+        }
+      ]
+    },
+    "terminal_reason": {"oneOf": [{"type": "null"}, {"enum": ["contract_rejected", "plateau", "target_achieved", "budget_exhausted", "blocked_by_infra", "harden_eval", "authority_required", "stopped_by_user", "promoted", "promotion_reverted", "retained_incumbent", "failed", "interrupted"]}]},
+    "last_event_seq": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "updated_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "finite": {"type": "number", "minimum": -1e308, "maximum": 1e308},
+    "usage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tokens", "cost_usd", "wall_seconds", "failures"],
+      "properties": {
+        "tokens": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "cost_usd": {"type": "number", "minimum": 0, "maximum": 1e308},
+        "wall_seconds": {"type": "number", "minimum": 0, "maximum": 1e308},
+        "failures": {"type": "integer", "minimum": 0, "maximum": 1000000}
+      }
+    },
+    "artifactState": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "parent_id", "artifact_sha256", "semantic_sha256", "snapshot", "score", "gates_passed", "committed_event_seq"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 200},
+        "parent_id": {"type": ["string", "null"], "maxLength": 200},
+        "artifact_sha256": {"$ref": "#/$defs/sha256"},
+        "semantic_sha256": {"$ref": "#/$defs/sha256"},
+        "snapshot": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "score": {"$ref": "#/$defs/finite"},
+        "gates_passed": {"const": true},
+        "committed_event_seq": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}
+      }
+    },
+    "budgetState": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidates_dispatched", "candidates_completed", "keeps", "discards", "usage"],
+      "properties": {
+        "candidates_dispatched": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "candidates_completed": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "keeps": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "discards": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "usage": {"$ref": "#/$defs/usage"}
+      }
+    }
+  }
+}

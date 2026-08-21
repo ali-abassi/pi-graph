@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pi-graph.optimization-metrics.v1",
+  "title": "Pi Graph optimization metrics v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "primary", "coverage", "gates", "usage", "uncertainty"],
+  "properties": {
+    "schema": {"const": "pi-graph.optimization-metrics.v1"},
+    "primary": {"$ref": "#/$defs/finite"},
+    "coverage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["expected", "scored"],
+      "properties": {
+        "expected": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+        "scored": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}
+      }
+    },
+    "gates": {
+      "type": "object", "additionalProperties": false,
+      "patternProperties": {"^.{1,100}$": {"type": "boolean"}},
+      "maxProperties": 100
+    },
+    "usage": {"$ref": "#/$defs/usage"},
+    "uncertainty": {
+      "type": "object", "additionalProperties": false,
+      "required": ["low", "high"],
+      "properties": {"low": {"$ref": "#/$defs/finite"}, "high": {"$ref": "#/$defs/finite"}}
+    }
+  },
+  "$defs": {
+    "finite": {"type": "number", "minimum": -1e308, "maximum": 1e308},
+    "usage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tokens", "cost_usd", "wall_seconds"],
+      "properties": {
+        "tokens": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "cost_usd": {"type": "number", "minimum": 0, "maximum": 1e308},
+        "wall_seconds": {"type": "number", "minimum": 0, "maximum": 1e308}
+      }
+    }
+  }
+}

@@ -9,7 +9,17 @@ bounded text plus structured command details.
 
 The native tool can canary or detach a large `batch` corpus. `batch-status`
 returns compact progress without holding a model turn open, and `batch-cancel`
-stops the detached controller process group.
+stops the detached controller process group. The same tool exposes `version`
+and the staged `optimize-init`, `optimize-baseline`, `optimize-candidate`,
+`optimize-status`, `optimize-resume`, `optimize-stop`, `optimize-promote`, and
+`optimize-receipt` actions. Those actions are thin argument adapters over the
+CLI; they do not duplicate lifecycle or execution logic.
+
+Optimization responses are bounded `pi-graph.optimize-response.v1` documents.
+A normal discard exits successfully, a hard-gate/non-promotion outcome exits
+`1`, malformed contracts/transitions exit `2`, integrity drift exits `3`, and
+lock contention exits `4`. The extension retains its existing rule that a
+non-zero CLI exit is a tool error, preserving gates as mechanical authority.
 
 This follows Pi's documented package contract: resources are declared under the
 `pi` manifest, Pi-owned imports are `peerDependencies` with `"*"`, and custom

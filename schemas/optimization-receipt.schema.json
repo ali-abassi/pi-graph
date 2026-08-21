@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/ali-abassi/pi-graph/main/schemas/optimization-receipt.schema.json",
+  "title": "Pi Graph optimization terminal receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "experiment_id", "outcome", "assurance_scope", "contract",
+    "runtime", "baseline", "development", "search", "selected", "holdout",
+    "promotion", "budgets", "effects", "evidence", "rollback", "receipt_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "pi-graph.optimization-receipt.v1"},
+    "experiment_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "outcome": {
+      "enum": ["promoted", "retained_baseline", "not_promoted", "blocked"]
+    },
+    "assurance_scope": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "contract": {"$ref": "#/$defs/evidenceObject"},
+    "runtime": {"$ref": "#/$defs/evidenceObject"},
+    "baseline": {"$ref": "#/$defs/evidenceObject"},
+    "development": {"$ref": "#/$defs/evidenceObject"},
+    "search": {"$ref": "#/$defs/evidenceObject"},
+    "selected": {"$ref": "#/$defs/evidenceObject"},
+    "holdout": {"$ref": "#/$defs/evidenceObject"},
+    "promotion": {"$ref": "#/$defs/evidenceObject"},
+    "budgets": {"$ref": "#/$defs/evidenceObject"},
+    "effects": {"$ref": "#/$defs/evidenceObject"},
+    "evidence": {"$ref": "#/$defs/evidenceObject"},
+    "rollback": {"$ref": "#/$defs/evidenceObject"},
+    "receipt_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "evidenceObject": {
+      "type": "object",
+      "maxProperties": 100,
+      "additionalProperties": true
+    }
+  }
+}

@@ -12,6 +12,18 @@ test("tool arguments preserve explicit workflow inputs and machine output", () =
     ["run", "triage", "--node", "qa", "--input", "case", "--no-cache", "--json"],
   );
   assert.deepEqual(argumentsFor({ action: "doctor", json: true }), ["doctor", "--json"]);
+  assert.deepEqual(argumentsFor({ action: "version", compareRoot: "/tmp/install", json: true }), ["version", "--compare-root", "/tmp/install", "--json"]);
+  assert.deepEqual(
+    argumentsFor({ action: "optimize-init", workflow: "review/steps.yaml", contract: "contract.json", out: "experiment", json: true }),
+    ["optimize", "init", "review/steps.yaml", "--contract", "contract.json", "--out", "experiment", "--json"],
+  );
+  assert.deepEqual(
+    argumentsFor({ action: "optimize-candidate", experiment: "experiment", candidateFile: "candidate.yaml", parent: "baseline", mechanism: "prompt", hypothesis: "be clearer", json: true }),
+    ["optimize", "candidate", "experiment", "--file", "candidate.yaml", "--parent", "baseline", "--mechanism", "prompt", "--hypothesis", "be clearer", "--json"],
+  );
+  assert.deepEqual(argumentsFor({ action: "optimize-status", experiment: "experiment", historyLimit: 5, json: true }), ["optimize", "status", "experiment", "--history-limit", "5", "--json"]);
+  assert.deepEqual(argumentsFor({ action: "optimize-stop", experiment: "experiment", reason: "plateau", json: true }), ["optimize", "stop", "experiment", "--reason", "plateau", "--json"]);
+  assert.deepEqual(argumentsFor({ action: "optimize-promote", experiment: "experiment", holdoutFile: "private.jsonl", json: true }), ["optimize", "promote", "experiment", "--holdout-file", "private.jsonl", "--json"]);
   assert.deepEqual(
     argumentsFor({ action: "resume", workflow: "triage", run: "run-2", forceDrift: true, json: true }),
     ["resume", "triage", "run-2", "--force-drift", "--json"],
@@ -62,6 +74,8 @@ test("tool arguments preserve explicit workflow inputs and machine output", () =
   assert.throws(() => argumentsFor({ action: "compare", workflow: "triage" }), /requires baselineRun/);
   assert.throws(() => argumentsFor({ action: "set", workflow: "triage" }), /requires a step/);
   assert.throws(() => argumentsFor({ action: "eval", workflow: "triage" }), /requires inputs/);
+  assert.throws(() => argumentsFor({ action: "optimize-init", workflow: "review" }), /requires workflow and contract/);
+  assert.throws(() => argumentsFor({ action: "optimize-candidate", experiment: "exp" }), /requires candidateFile/);
 });
 
 

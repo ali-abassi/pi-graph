@@ -620,6 +620,11 @@ def run_batch(args: argparse.Namespace, extra: list[str]) -> int:
     if args.limit:
         items = items[:args.limit]
     workflow, expected_steps, workflow_cwd = validate_workflow(steps_file)
+    if args.workflow_dir is not None:
+        requested_workflow_cwd = args.workflow_dir.expanduser().resolve()
+        if not requested_workflow_cwd.is_dir():
+            raise ValueError(f"--workflow-dir is not a directory: {requested_workflow_cwd}")
+        workflow_cwd = str(requested_workflow_cwd)
     resume_contract: dict[str, Any] | None = None
     if args.resume:
         resume_manifest_path = Path(args.resume).expanduser().resolve() / "batch-manifest.json"
@@ -851,6 +856,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("steps_file", type=Path)
     parser.add_argument("--inputs", type=Path, required=True,
                         help="corpus: JSONL objects, a text/markdown directory, or non-empty lines")
+    parser.add_argument("--workflow-dir", type=Path,
+                        help="resolve WORKFLOW_DIR against this source directory (for frozen workflow copies)")
     parser.add_argument("--input-file", default="input.txt",
                         help="safe relative filename for each immutable item (default: input.txt)")
     parser.add_argument("--parallel", type=int, default=4,

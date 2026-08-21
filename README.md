@@ -48,6 +48,26 @@ piw run review/steps.yaml --input-file task.md --node parallel-review-verdict
 piw compare review/steps.yaml BASELINE_RUN CANDIDATE_RUN
 ```
 
+## Optimize workflows deterministically
+
+Agents can improve an existing workflow without owning the experiment state machine:
+
+```bash
+piw optimize init review/steps.yaml --contract review/optimization-contract.json --out review/optimization/run-001 --json
+piw optimize baseline review/optimization/run-001 --json
+piw optimize candidate review/optimization/run-001 --file /tmp/candidate.yaml \
+  --parent baseline --mechanism synthesis-prompt \
+  --hypothesis "Require claim-level evidence" --json
+piw optimize status review/optimization/run-001 --json
+piw optimize stop review/optimization/run-001 --reason "candidate budget complete" --json
+piw optimize promote review/optimization/run-001 --holdout-file /private/holdout.jsonl --json
+piw optimize receipt review/optimization/run-001 --json
+```
+
+The contract freezes the evaluator, parser, visible corpus, private-holdout digest, model/tool/runtime pins, mutable JSON Pointers, gates, and finite budgets. The baseline uses the exact candidate path; each candidate changes one declared mechanism; rejected candidates are restored byte-for-byte; committed evidence is hash chained and resumable; and the holdout can be reserved once. The controller never invokes commit, push, merge, deploy, or production writes. Workflow nodes still have normal user authority, so use an external sandbox when strict effect isolation is required.
+
+See [Deterministic workflow optimization](docs/optimization.md) and [`schemas/optimization-contract.schema.json`](schemas/optimization-contract.schema.json). Use `piw version --json` to prove the executing source/install identity before paid runs.
+
 ## Node kinds
 
 | Kind | Declared by | Behavior |
@@ -77,7 +97,8 @@ machine-readable form.** That is the authoritative reference, not this file.
 | `run` `resume` `batch` `batch-status` `batch-cancel` | Execute and recover |
 | `detail` `runs` `show` `compare` `stats` | Evidence after the fact |
 | `eval` `reports` | Compare models over a corpus, judges fixed |
-| `ui` `doctor` `path` | Studio, health, locations |
+| `optimize …` | Baseline, candidate, keep/revert, stop, one-time promotion |
+| `ui` `doctor` `version` `path` | Studio, health, source/install identity, locations |
 
 Every new normal run is a self-contained local bundle: an exact immutable
 `workflow.yaml`, SHA-256 workflow/input identity, atomic `manifest.json` and
