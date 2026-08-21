@@ -108,7 +108,7 @@
     "baselineVerified": {
       "type": "object", "additionalProperties": false,
       "required": ["artifact_sha256", "snapshot_sha256", "metrics"],
-      "properties": {"artifact_sha256": {"$ref": "#/$defs/sha256"}, "snapshot_sha256": {"$ref": "#/$defs/sha256"}, "metrics": {"$ref": "#/$defs/metrics"}}
+      "properties": {"artifact_sha256": {"$ref": "#/$defs/sha256"}, "semantic_sha256": {"$ref": "#/$defs/sha256"}, "snapshot_sha256": {"$ref": "#/$defs/sha256"}, "metrics": {"$ref": "#/$defs/metrics"}}
     },
     "candidateDeclared": {
       "type": "object", "additionalProperties": false,
@@ -159,7 +159,7 @@
     "incumbentCommitted": {
       "type": "object", "additionalProperties": false,
       "required": ["candidate_id", "parent_id", "artifact_sha256", "snapshot_sha256", "score"],
-      "properties": {"candidate_id": {"type": "string", "minLength": 1, "maxLength": 200}, "parent_id": {"type": "string", "minLength": 1, "maxLength": 200}, "artifact_sha256": {"$ref": "#/$defs/sha256"}, "snapshot_sha256": {"$ref": "#/$defs/sha256"}, "score": {"$ref": "#/$defs/finite"}}
+      "properties": {"candidate_id": {"type": "string", "minLength": 1, "maxLength": 200}, "parent_id": {"type": "string", "minLength": 1, "maxLength": 200}, "artifact_sha256": {"$ref": "#/$defs/sha256"}, "semantic_sha256": {"$ref": "#/$defs/sha256"}, "snapshot_sha256": {"$ref": "#/$defs/sha256"}, "score": {"$ref": "#/$defs/finite"}}
     },
     "invalidEval": {
       "type": "object", "additionalProperties": false,

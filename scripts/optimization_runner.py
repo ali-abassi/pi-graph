@@ -16,7 +16,8 @@ from typing import Any
 import graph as workflow_graph
 from optimization_bundle import (
     OptimizationBundle, OptimizationError, _count_jsonl, _load_json, _safe_bytes, atomic_write,
-    canonical, effective_environment, sha256_bytes, sha256_file, stop_reason, validate_candidate, validate_schema,
+    canonical, effective_environment, semantic_workflow, sha256_bytes, sha256_file,
+    stop_reason, validate_candidate, validate_schema,
 )
 
 MAX_PROCESS_OUTPUT = 2 * 1024 * 1024
@@ -319,7 +320,8 @@ def run_baseline(bundle: OptimizationBundle) -> dict[str, Any]:
             "metrics": metrics, "gates_passed": gates, "usage": metrics["usage"], "evidence": evidence})
         baseline_hash = sha256_file(baseline_snapshot)
         bundle.ledger.append("baseline_verified", {"artifact_sha256": baseline_hash,
-                                                    "snapshot_sha256": baseline_hash, "metrics": metrics})
+            "semantic_sha256": bundle.manifest["baseline"]["semantic_sha256"],
+            "snapshot_sha256": baseline_hash, "metrics": metrics})
         return {"decision": "baseline_verified", "metrics": metrics, "state": bundle.write_state()}
 
 
@@ -332,6 +334,7 @@ def _gain(candidate: dict[str, Any], incumbent: dict[str, Any], direction: str) 
 def run_candidate(bundle: OptimizationBundle, candidate_file: Path, parent_id: str,
                   mechanism: str, hypothesis: str) -> tuple[dict[str, Any], int]:
     with bundle.lock():
+        bundle.verify_integrity()
         state = bundle.state()
         if state["status"] not in {"baseline_verified", "searching"} or state["incumbent"] is None:
             raise OptimizationError(f"candidate is illegal from state {state['status']}")
@@ -342,6 +345,19 @@ def run_candidate(bundle: OptimizationBundle, candidate_file: Path, parent_id: s
             _terminal_for_stop(bundle, state, reason)
             raise OptimizationError(f"experiment stopped before dispatch: {reason}")
         candidate_id = f"c{state['candidate_cursor'] + 1:03d}"
+        submitted = bundle.path / "candidates" / candidate_id / "submitted.yaml"
+        try:
+            candidate_raw = _safe_bytes(candidate_file)
+            atomic_write(submitted, candidate_raw)
+            details = validate_candidate(bundle, submitted, state["incumbent"]["artifact_sha256"],
+                                         mechanism=mechanism, candidate_raw=candidate_raw)
+            candidate_value, _semantic_hash = semantic_workflow(candidate_raw)
+            validate_schema(bundle.product_root, "workflow.schema.json", candidate_value)
+            workflow_graph.parse_steps_text(candidate_raw.decode(), submitted)
+        except Exception:
+            shutil.rmtree(submitted.parent, ignore_errors=True)
+            raise
+        mechanism = details["mechanism"]
         bundle.ledger.append("candidate_declared", {"candidate_id": candidate_id, "parent_id": parent_id,
                                                     "hypothesis": hypothesis, "mechanism": mechanism})
         parent_snapshot = bundle.snapshot_active(candidate_id)
@@ -349,9 +365,11 @@ def run_candidate(bundle: OptimizationBundle, candidate_file: Path, parent_id: s
         bundle.ledger.append("snapshot_created", {"candidate_id": candidate_id, "artifact_sha256": parent_hash,
                                                    "snapshot": _evidence(parent_snapshot, bundle.path)})
         try:
-            details = validate_candidate(bundle, candidate_file, parent_hash, mechanism=mechanism)
-            workflow_graph.parse_steps_text(_safe_bytes(candidate_file).decode(), candidate_file)
-            artifact_hash, semantic_hash = bundle.apply_candidate(candidate_file, candidate_id)
+            details = validate_candidate(bundle, submitted, parent_hash, mechanism=mechanism,
+                                         candidate_raw=candidate_raw)
+            artifact_hash, semantic_hash = bundle.apply_candidate(
+                submitted, candidate_id, candidate_raw=candidate_raw,
+                expected_parent=parent_hash, validated=details)
             bundle.ledger.append("candidate_mutated", {"candidate_id": candidate_id,
                 "artifact_sha256": artifact_hash, "semantic_sha256": semantic_hash,
                 "diff_sha256": details["diff_sha256"]})
@@ -360,7 +378,7 @@ def run_candidate(bundle: OptimizationBundle, candidate_file: Path, parent_id: s
                                                     phase="development")
             if metrics is None:
                 bundle.restore_frozen_sources()
-                restored = bundle.restore(candidate_id)
+                restored = bundle.restore(candidate_id, parent_hash)
                 decision = "gate_failed"
                 gain = 0.0
                 bundle.ledger.append("candidate_decided", {"candidate_id": candidate_id, "decision": decision,
@@ -383,16 +401,16 @@ def run_candidate(bundle: OptimizationBundle, candidate_file: Path, parent_id: s
                     snapshot = bundle.path / "candidates" / candidate_id / "candidate.yaml"
                     bundle.ledger.append("incumbent_committed", {"candidate_id": candidate_id, "parent_id": parent_id,
                         "artifact_sha256": artifact_hash, "snapshot_sha256": sha256_file(snapshot),
-                        "score": metrics["primary"]})
+                        "semantic_sha256": semantic_hash, "score": metrics["primary"]})
                     exit_code = 0
                 else:
-                    restored = bundle.restore(candidate_id)
+                    restored = bundle.restore(candidate_id, parent_hash)
                     bundle.ledger.append("rollback_verified", {"candidate_id": candidate_id,
                         "restored_sha256": restored, "snapshot_sha256": parent_hash})
                     exit_code = 0
         except ArmBudgetExceeded as error:
             bundle.restore_frozen_sources()
-            restored = bundle.restore(candidate_id)
+            restored = bundle.restore(candidate_id, parent_hash)
             metrics = error.metrics
             decision = "invalid_eval"
             gain = 0.0
@@ -406,7 +424,7 @@ def run_candidate(bundle: OptimizationBundle, candidate_file: Path, parent_id: s
             exit_code = 1
         except Exception as error:
             bundle.restore_frozen_sources()
-            restored = bundle.restore(candidate_id)
+            restored = bundle.restore(candidate_id, parent_hash)
             bundle.ledger.append("candidate_decided", {"candidate_id": candidate_id, "decision": "invalid_eval",
                                                        "reason": str(error)[:4000], "trusted_score": False, "metrics": None})
             bundle.ledger.append("rollback_verified", {"candidate_id": candidate_id,
@@ -426,8 +444,10 @@ def run_candidate(bundle: OptimizationBundle, candidate_file: Path, parent_id: s
         if reason and state["status"] not in {"plateau", "budget_exhausted", "target_achieved"}:
             _terminal_for_stop(bundle, state, reason)
             state = bundle.write_state()
-        return {"candidate_id": candidate_id, "decision": decision, "gain": gain,
-                "metrics": metrics, "state": state}, exit_code
+        return {"candidate_id": candidate_id, "mechanism": mechanism,
+                "artifact_sha256": details["artifact_sha256"],
+                "semantic_sha256": details["semantic_sha256"], "diff_sha256": details["diff_sha256"],
+                "decision": decision, "gain": gain, "metrics": metrics, "state": state}, exit_code
 
 
 def _incumbent_metrics(bundle: OptimizationBundle, incumbent_id: str) -> dict[str, Any]:
@@ -454,6 +474,8 @@ def _terminal_for_stop(bundle: OptimizationBundle, state: dict[str, Any], reason
 def stop_experiment(bundle: OptimizationBundle, reason: str) -> dict[str, Any]:
     with bundle.lock():
         state = bundle.state()
+        if state.get("pending_operation"):
+            raise OptimizationError("experiment has an interrupted operation; run optimize resume first")
         if state["status"] == "stopped_by_user":
             if state["terminal_reason"] == reason:
                 return state
@@ -470,6 +492,9 @@ def stop_experiment(bundle: OptimizationBundle, reason: str) -> dict[str, Any]:
 def promote(bundle: OptimizationBundle, holdout_file: Path | None) -> tuple[dict[str, Any], int]:
     with bundle.lock():
         state = bundle.state()
+        if state.get("pending_operation"):
+            raise OptimizationError("experiment has an interrupted operation; run optimize resume first")
+        bundle.verify_integrity()
         if state["status"] not in {"stopped_by_user", "plateau", "budget_exhausted", "target_achieved"}:
             raise OptimizationError(f"promotion is illegal from state {state['status']}")
         if state["holdout_uses"] != 0:
@@ -596,17 +621,77 @@ def resume(bundle: OptimizationBundle) -> dict[str, Any]:
             if incumbent is not None:
                 _promotion_failure(bundle, incumbent, "holdout operation was interrupted; redispatch forbidden")
             return bundle.write_state()
+        if state["status"] in {"promoted", "promotion_reverted", "retained_incumbent"}:
+            bundle.verify_integrity()
+            receipt = bundle.path / "receipts" / "final.json"
+            receipt_events = [record for record in records if record["type"] == "receipt_written"]
+            if receipt_events:
+                if (not receipt.is_file() or
+                        receipt_events[-1]["payload"].get("sha256") != sha256_file(receipt)):
+                    raise OptimizationError("committed terminal receipt fingerprint drift")
+                read_receipt(bundle)
+                return state
+            if state["status"] == "promoted":
+                evaluated = next(record["payload"] for record in reversed(records)
+                                 if record["type"] == "holdout_evaluated")
+                _write_receipt(bundle, "promoted", evaluated["metrics"], evaluated["evidence"])
+            elif state["status"] == "promotion_reverted":
+                _write_receipt(bundle, "not_promoted", None, None)
+            else:
+                _write_receipt(bundle, "retained_baseline", None, None)
+            return bundle.write_state()
         pending = records[-1]["type"] if records else None
-        if pending in {"candidate_declared", "snapshot_created", "candidate_mutated", "gate_evaluated", "arm_evaluated"}:
+        if pending == "baseline_evaluated":
+            payload = records[-1]["payload"]
+            baseline = bundle.path / "artifacts" / "baseline.yaml"
+            baseline_hash = sha256_file(baseline)
+            bundle.ledger.append("baseline_verified", {
+                "artifact_sha256": baseline_hash,
+                "semantic_sha256": bundle.manifest["baseline"]["semantic_sha256"],
+                "snapshot_sha256": baseline_hash, "metrics": payload["metrics"],
+            })
+            return bundle.write_state()
+        if pending in {"candidate_declared", "snapshot_created", "candidate_mutated", "gate_evaluated",
+                       "arm_evaluated", "candidate_decided"}:
             candidate = next(record["payload"]["candidate_id"] for record in reversed(records)
                              if record["type"] == "candidate_declared")
-            restored = bundle.restore(candidate)
-            parent_hash = sha256_file(bundle.path / "candidates" / candidate / "parent.yaml")
-            bundle.ledger.append("candidate_decided", {"candidate_id": candidate, "decision": "blocked_by_infra",
-                                                       "reason": "interrupted operation recovered without redispatch",
-                                                       "trusted_score": False, "metrics": None})
-            bundle.ledger.append("rollback_verified", {"candidate_id": candidate,
-                "restored_sha256": restored, "snapshot_sha256": parent_hash})
+            snapshot_event = next((record for record in reversed(records)
+                                   if record["type"] == "snapshot_created" and
+                                   record["payload"].get("candidate_id") == candidate), None)
+            parent_hash = (snapshot_event["payload"]["artifact_sha256"] if snapshot_event else
+                           state["incumbent"]["artifact_sha256"])
+            decision_event = (records[-1] if pending == "candidate_decided" else None)
+            if decision_event and decision_event["payload"]["decision"] == "keep":
+                mutated = next(record["payload"] for record in reversed(records)
+                               if record["type"] == "candidate_mutated" and
+                               record["payload"].get("candidate_id") == candidate)
+                candidate_snapshot = bundle.path / "candidates" / candidate / "candidate.yaml"
+                if (sha256_file(candidate_snapshot) != mutated["artifact_sha256"] or
+                        sha256_file(bundle.path / "artifacts" / "active.yaml") != mutated["artifact_sha256"]):
+                    raise OptimizationError("kept candidate changed before interrupted commit recovery")
+                declared = next(record["payload"] for record in reversed(records)
+                                if record["type"] == "candidate_declared" and
+                                record["payload"].get("candidate_id") == candidate)
+                bundle.ledger.append("incumbent_committed", {
+                    "candidate_id": candidate, "parent_id": declared["parent_id"],
+                    "artifact_sha256": mutated["artifact_sha256"],
+                    "semantic_sha256": mutated["semantic_sha256"],
+                    "snapshot_sha256": sha256_file(candidate_snapshot),
+                    "score": decision_event["payload"]["metrics"]["primary"],
+                })
+            else:
+                snapshot = bundle.path / "candidates" / candidate / "parent.yaml"
+                restored = (bundle.restore(candidate, parent_hash) if snapshot.exists() else
+                            sha256_file(bundle.path / "artifacts" / "active.yaml"))
+                if restored != parent_hash:
+                    raise OptimizationError("active workflow changed before interrupted candidate recovery")
+                if pending != "candidate_decided":
+                    bundle.ledger.append("candidate_decided", {
+                        "candidate_id": candidate, "decision": "blocked_by_infra",
+                        "reason": "interrupted operation recovered without redispatch",
+                        "trusted_score": False, "metrics": None})
+                bundle.ledger.append("rollback_verified", {"candidate_id": candidate,
+                    "restored_sha256": restored, "snapshot_sha256": parent_hash})
         elif state["status"] not in {"failed", "interrupted", "resuming"}:
             return state
         bundle.ledger.append("resumed", {"previous_status": "interrupted",

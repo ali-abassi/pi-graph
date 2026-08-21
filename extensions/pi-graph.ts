@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-const ACTIONS = ["doctor", "version", "schema", "actions", "add", "list", "create", "graph", "path", "validate", "run", "resume", "batch", "batch-status", "batch-cancel", "runs", "detail", "compare", "show", "set", "stats", "eval", "reports", "schedule", "automations", "automation", "optimize-init", "optimize-baseline", "optimize-candidate", "optimize-status", "optimize-resume", "optimize-stop", "optimize-promote", "optimize-receipt"] as const;
+const ACTIONS = ["doctor", "version", "schema", "actions", "add", "list", "create", "graph", "path", "validate", "run", "resume", "batch", "batch-status", "batch-cancel", "runs", "detail", "compare", "show", "set", "stats", "eval", "reports", "schedule", "automations", "automation", "optimize-scaffold", "optimize-init", "optimize-baseline", "optimize-mechanisms", "optimize-checkout", "optimize-diff", "optimize-submit", "optimize-candidate", "optimize-status", "optimize-resume", "optimize-stop", "optimize-promote", "optimize-receipt"] as const;
 const PIW = fileURLToPath(new URL("../bin/piw", import.meta.url));
 const TOOL_MAX_LINES = 500;
 const TOOL_MAX_BYTES = 24 * 1024;
@@ -48,7 +48,14 @@ export function argumentsFor(params: Record<string, unknown>): string[] {
     if (typeof params.compareRoot === "string" && params.compareRoot.trim()) args.push("--compare-root", params.compareRoot.trim());
   }
   if (command === "optimize") {
-    if (optimizeAction === "init") {
+    if (optimizeAction === "scaffold") {
+      const workflow = typeof params.workflow === "string" ? params.workflow.trim() : "";
+      const inputs = typeof params.inputs === "string" ? params.inputs.trim() : "";
+      const holdout = typeof params.holdoutFile === "string" ? params.holdoutFile.trim() : "";
+      if (!workflow || !inputs || !holdout) throw new Error("optimize-scaffold requires workflow, inputs, and holdoutFile");
+      args.push(workflow, "--inputs", inputs, "--holdout", holdout);
+      if (typeof params.out === "string" && params.out.trim()) args.push("--contract-out", params.out.trim());
+    } else if (optimizeAction === "init") {
       const workflow = typeof params.workflow === "string" ? params.workflow.trim() : "";
       const contract = typeof params.contract === "string" ? params.contract.trim() : "";
       if (!workflow || !contract) throw new Error("optimize-init requires workflow and contract");
@@ -58,13 +65,26 @@ export function argumentsFor(params: Record<string, unknown>): string[] {
       const experiment = typeof params.experiment === "string" ? params.experiment.trim() : "";
       if (!experiment) throw new Error(`${action} requires an experiment directory`);
       args.push(experiment);
-      if (optimizeAction === "candidate") {
+      if (["diff", "submit", "candidate"].includes(optimizeAction)) {
         const candidateFile = typeof params.candidateFile === "string" ? params.candidateFile.trim() : "";
         const parent = typeof params.parent === "string" ? params.parent.trim() : "";
-        const mechanism = typeof params.mechanism === "string" ? params.mechanism.trim() : "";
-        const hypothesis = typeof params.hypothesis === "string" ? params.hypothesis.trim() : "";
-        if (!candidateFile || !parent || !mechanism || !hypothesis) throw new Error("optimize-candidate requires candidateFile, parent, mechanism, and hypothesis");
-        args.push("--file", candidateFile, "--parent", parent, "--mechanism", mechanism, "--hypothesis", hypothesis);
+        if (!candidateFile || !parent) throw new Error(`${action} requires candidateFile and parent`);
+        args.push("--file", candidateFile, "--parent", parent);
+        if (["submit", "candidate"].includes(optimizeAction)) {
+          const hypothesis = typeof params.hypothesis === "string" ? params.hypothesis.trim() : "";
+          if (!hypothesis) throw new Error(`${action} requires a hypothesis`);
+          if (optimizeAction === "candidate") {
+            const mechanism = typeof params.mechanism === "string" ? params.mechanism.trim() : "";
+            if (!mechanism) throw new Error("optimize-candidate requires a mechanism");
+            args.push("--mechanism", mechanism);
+          }
+          args.push("--hypothesis", hypothesis);
+        }
+      }
+      if (optimizeAction === "checkout") {
+        const out = typeof params.out === "string" ? params.out.trim() : "";
+        if (!out) throw new Error("optimize-checkout requires out");
+        args.push("--out", out);
       }
       if (optimizeAction === "status" && params.historyLimit !== undefined) args.push("--history-limit", String(params.historyLimit));
       if (optimizeAction === "stop") {
@@ -172,7 +192,7 @@ export function argumentsFor(params: Record<string, unknown>): string[] {
     const inputFile = typeof params.inputFile === "string" ? params.inputFile.trim() : "";
     const models = typeof params.models === "string" ? params.models.trim() : "";
     if (!inputs || !inputFile || !models) throw new Error("eval requires inputs, inputFile, and models");
-    args.push("--inputs", inputs, "--input-file", inputFile, "--models", models);
+    args.push("--inputs", inputs, "--input-name", inputFile, "--models", models);
     if (params.parallel !== undefined) args.push("--parallel", String(params.parallel));
     if (params.limit !== undefined) args.push("--limit", String(params.limit));
     if (typeof params.out === "string" && params.out.trim()) args.push("--out", params.out.trim());
@@ -215,6 +235,7 @@ export default function piWorkflows(pi: ExtensionAPI) {
       "Use the actions catalog before authoring common extraction, review, research, coding, JSONL, or exact-item patterns; add expands templates into ordinary inspectable nodes.",
       "After every run, use detail for the whole trace or one step; use compare before promoting a model, prompt, reasoning, or judge change.",
       "Use set to configure a node and its independent judge, run with node to force it fresh, and eval to compare models over a fixed corpus.",
+      "For optimization, scaffold/init/baseline first, then use mechanisms, checkout, diff, and submit; do not guess parent ids or mutable mechanisms.",
       "For many inputs, canary with batch limit first, then use batch with detach and requireAll; poll batch-status until every item has a complete execution contract.",
       "Use pi_graph schedule only after validation and one successful manual smoke; scheduling validates again and fails closed.",
       "Use pi_graph only when a repeatable graph earns its complexity; use ordinary tools for a one-step task.",

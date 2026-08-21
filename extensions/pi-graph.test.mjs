@@ -18,6 +18,14 @@ test("tool arguments preserve explicit workflow inputs and machine output", () =
     ["optimize", "init", "review/steps.yaml", "--contract", "contract.json", "--out", "experiment", "--json"],
   );
   assert.deepEqual(
+    argumentsFor({ action: "optimize-scaffold", workflow: "review/steps.yaml", inputs: "dev.jsonl", holdoutFile: "holdout.jsonl", out: "contract.json", json: true }),
+    ["optimize", "scaffold", "review/steps.yaml", "--inputs", "dev.jsonl", "--holdout", "holdout.jsonl", "--contract-out", "contract.json", "--json"],
+  );
+  assert.deepEqual(argumentsFor({ action: "optimize-mechanisms", experiment: "experiment", json: true }), ["optimize", "mechanisms", "experiment", "--json"]);
+  assert.deepEqual(argumentsFor({ action: "optimize-checkout", experiment: "experiment", out: "candidate.yaml", json: true }), ["optimize", "checkout", "experiment", "--out", "candidate.yaml", "--json"]);
+  assert.deepEqual(argumentsFor({ action: "optimize-diff", experiment: "experiment", candidateFile: "candidate.yaml", parent: "baseline", json: true }), ["optimize", "diff", "experiment", "--file", "candidate.yaml", "--parent", "baseline", "--json"]);
+  assert.deepEqual(argumentsFor({ action: "optimize-submit", experiment: "experiment", candidateFile: "candidate.yaml", parent: "baseline", hypothesis: "be clearer", json: true }), ["optimize", "submit", "experiment", "--file", "candidate.yaml", "--parent", "baseline", "--hypothesis", "be clearer", "--json"]);
+  assert.deepEqual(
     argumentsFor({ action: "optimize-candidate", experiment: "experiment", candidateFile: "candidate.yaml", parent: "baseline", mechanism: "prompt", hypothesis: "be clearer", json: true }),
     ["optimize", "candidate", "experiment", "--file", "candidate.yaml", "--parent", "baseline", "--mechanism", "prompt", "--hypothesis", "be clearer", "--json"],
   );
@@ -57,7 +65,7 @@ test("tool arguments preserve explicit workflow inputs and machine output", () =
   );
   assert.deepEqual(
     argumentsFor({ action: "eval", workflow: "review", inputs: "evals.jsonl", inputFile: "input.txt", models: "test/luna,test/terra", parallel: 2 }),
-    ["eval", "review", "--inputs", "evals.jsonl", "--input-file", "input.txt", "--models", "test/luna,test/terra", "--parallel", "2"],
+    ["eval", "review", "--inputs", "evals.jsonl", "--input-name", "input.txt", "--models", "test/luna,test/terra", "--parallel", "2"],
   );
   assert.deepEqual(
     argumentsFor({ action: "batch-status", batchDirectory: "/tmp/batch", json: true }),

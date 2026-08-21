@@ -264,6 +264,7 @@ class OptimizationBundleTests(unittest.TestCase):
                 candidate.write_text(yaml.safe_dump(value, sort_keys=False), encoding="utf-8")
                 bundle.ledger.append("candidate_declared", {"candidate_id": "c001", "parent_id": "baseline",
                     "hypothesis": "interrupt me", "mechanism": "answer_prompt"})
+                self.assertEqual(bundle.write_state()["pending_operation"]["stage"], "declared")
                 parent = bundle.snapshot_active("c001")
                 bundle.ledger.append("snapshot_created", {"candidate_id": "c001", "artifact_sha256": digest(parent),
                     "snapshot": {"path": str(parent.relative_to(bundle.path)), "sha256": digest(parent)}})
@@ -271,6 +272,17 @@ class OptimizationBundleTests(unittest.TestCase):
                 bundle.ledger.append("candidate_mutated", {"candidate_id": "c001",
                     "artifact_sha256": artifact_hash, "semantic_sha256": semantic_hash,
                     "diff_sha256": "1" * 64})
+                self.assertEqual(bundle.write_state()["pending_operation"]["stage"], "mutated")
+            status = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/piw.py"), "optimize", "status", str(bundle.path), "--json"],
+                cwd=ROOT, capture_output=True, text=True, check=False,
+                env={**os.environ, "PI_GRAPH_HOME": "/nonexistent"})
+            status_payload = json.loads(status.stdout)
+            self.assertEqual(status.returncode, 0, status_payload)
+            self.assertEqual(status_payload["next"], ["resume"])
+            self.assertEqual(status_payload["next_actions"][0]["action"], "resume")
+            with self.assertRaisesRegex(optimization.OptimizationError, "resume first"):
+                optimization_runtime.stop_experiment(bundle, "unsafe stop")
             with mock.patch("optimization_runner._run", side_effect=AssertionError("must not redispatch")):
                 state = optimization_runtime.resume(bundle)
             self.assertEqual(state["status"], "searching")
@@ -278,6 +290,118 @@ class OptimizationBundleTests(unittest.TestCase):
             self.assertEqual((bundle.path / "artifacts" / "active.yaml").read_bytes(),
                              (bundle.path / "artifacts" / "baseline.yaml").read_bytes())
             self.assertFalse(any(row["type"] == "arm_evaluated" for row in bundle.ledger.replay()))
+
+    def test_resume_commits_an_evaluated_baseline_without_redispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            bundle, _, _ = self.init_bundle(Path(raw))
+            metrics = {"schema": "pi-graph.optimization-metrics.v1", "primary": 0.5,
+                       "coverage": {"expected": 2, "scored": 2}, "gates": {},
+                       "usage": {"tokens": 0, "cost_usd": 0, "wall_seconds": 0},
+                       "uncertainty": {"low": 0.5, "high": 0.5}}
+            with bundle.lock():
+                bundle.ledger.append("baseline_evaluated", {
+                    "candidate_id": None, "dataset": "development", "metrics": metrics,
+                    "gates_passed": True, "usage": metrics["usage"], "evidence": []})
+                self.assertEqual(bundle.write_state()["status"], "baseline_running")
+            with mock.patch("optimization_runner.evaluate_arm", side_effect=AssertionError("must not redispatch")):
+                state = optimization_runtime.resume(bundle)
+            self.assertEqual(state["status"], "baseline_verified")
+            self.assertEqual(state["baseline"]["semantic_sha256"],
+                             bundle.manifest["baseline"]["semantic_sha256"])
+
+    def test_resume_finishes_a_committed_keep_without_contradictory_rollback(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            bundle, _, _ = self.init_bundle(root)
+            metrics = {"schema": "pi-graph.optimization-metrics.v1", "primary": 0.5,
+                       "coverage": {"expected": 2, "scored": 2}, "gates": {},
+                       "usage": {"tokens": 0, "cost_usd": 0, "wall_seconds": 0},
+                       "uncertainty": {"low": 0.5, "high": 0.5}}
+            metrics_path = bundle.path / "evaluations" / "baseline" / "development" / "aggregate-metrics.json"
+            optimization.atomic_write(metrics_path, optimization.canonical(metrics))
+            baseline_hash = digest(bundle.path / "artifacts" / "baseline.yaml")
+            candidate = root / "candidate.yaml"
+            value = yaml.safe_load((bundle.path / "artifacts" / "active.yaml").read_text())
+            value["steps"][0]["prompt"] = "committed candidate"
+            candidate.write_text(yaml.safe_dump(value, sort_keys=False), encoding="utf-8")
+            kept_metrics = {**metrics, "primary": 0.8, "uncertainty": {"low": 0.8, "high": 0.8}}
+            with bundle.lock():
+                bundle.ledger.append("baseline_evaluated", {"candidate_id": None, "dataset": "development",
+                    "metrics": metrics, "gates_passed": True, "usage": metrics["usage"], "evidence": []})
+                bundle.ledger.append("baseline_verified", {"artifact_sha256": baseline_hash,
+                    "semantic_sha256": bundle.manifest["baseline"]["semantic_sha256"],
+                    "snapshot_sha256": baseline_hash, "metrics": metrics})
+                bundle.ledger.append("candidate_declared", {"candidate_id": "c001", "parent_id": "baseline",
+                    "hypothesis": "keep me", "mechanism": "answer_prompt"})
+                parent = bundle.snapshot_active("c001")
+                bundle.ledger.append("snapshot_created", {"candidate_id": "c001", "artifact_sha256": digest(parent),
+                    "snapshot": {"path": str(parent.relative_to(bundle.path)), "sha256": digest(parent)}})
+                artifact_hash, semantic_hash = bundle.apply_candidate(candidate, "c001")
+                candidate_snapshot = bundle.path / "candidates" / "c001" / "candidate.yaml"
+                bundle.ledger.append("candidate_mutated", {"candidate_id": "c001",
+                    "artifact_sha256": artifact_hash, "semantic_sha256": semantic_hash,
+                    "diff_sha256": "1" * 64})
+                bundle.ledger.append("candidate_decided", {"candidate_id": "c001", "decision": "keep",
+                    "reason": "measured gain", "trusted_score": True, "metrics": kept_metrics})
+            state = optimization_runtime.resume(bundle)
+            self.assertEqual(state["incumbent"]["id"], "c001")
+            self.assertEqual(state["budget"]["keeps"], 1)
+            self.assertEqual(digest(bundle.path / "artifacts" / "active.yaml"), artifact_hash)
+            self.assertFalse(any(row["type"] == "rollback_verified" for row in bundle.ledger.replay()))
+            candidate_snapshot.unlink()
+            with self.assertRaises(optimization.OptimizationError):
+                bundle.verify_integrity()
+
+    def test_resume_writes_a_missing_terminal_receipt_without_redispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            bundle, _, _ = self.init_bundle(Path(raw))
+            metrics = {"schema": "pi-graph.optimization-metrics.v1", "primary": 0.5,
+                       "coverage": {"expected": 2, "scored": 2}, "gates": {},
+                       "usage": {"tokens": 0, "cost_usd": 0, "wall_seconds": 0},
+                       "uncertainty": {"low": 0.5, "high": 0.5}}
+            metrics_path = bundle.path / "evaluations" / "baseline" / "development" / "aggregate-metrics.json"
+            optimization.atomic_write(metrics_path, optimization.canonical(metrics))
+            baseline_hash = digest(bundle.path / "artifacts" / "baseline.yaml")
+            with bundle.lock():
+                bundle.ledger.append("baseline_evaluated", {"candidate_id": None, "dataset": "development",
+                    "metrics": metrics, "gates_passed": True, "usage": metrics["usage"], "evidence": []})
+                bundle.ledger.append("baseline_verified", {"artifact_sha256": baseline_hash,
+                    "semantic_sha256": bundle.manifest["baseline"]["semantic_sha256"],
+                    "snapshot_sha256": baseline_hash, "metrics": metrics})
+                bundle.write_state()
+            optimization_runtime.stop_experiment(bundle, "baseline is enough")
+            append = bundle.ledger.append
+
+            def crash_before_receipt_commit(event_type, payload, *args, **kwargs):
+                if event_type == "receipt_written":
+                    raise RuntimeError("crash before receipt commit")
+                return append(event_type, payload, *args, **kwargs)
+
+            with mock.patch.object(bundle.ledger, "append", side_effect=crash_before_receipt_commit):
+                with self.assertRaisesRegex(RuntimeError, "crash before receipt"):
+                    optimization_runtime.promote(bundle, None)
+            self.assertEqual(bundle.state()["status"], "retained_incumbent")
+            self.assertTrue((bundle.path / "receipts" / "final.json").exists())
+            self.assertFalse(any(row["type"] == "receipt_written" for row in bundle.ledger.replay()))
+            status = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/piw.py"), "optimize", "status", str(bundle.path), "--json"],
+                cwd=ROOT, capture_output=True, text=True, check=False,
+                env={**os.environ, "PI_GRAPH_HOME": "/nonexistent"})
+            status_payload = json.loads(status.stdout)
+            self.assertEqual(status.returncode, 0, status_payload)
+            self.assertEqual(status_payload["next"], ["resume"])
+            self.assertEqual(status_payload["next_actions"][0]["action"], "resume")
+            active = bundle.path / "artifacts" / "active.yaml"
+            baseline = bundle.path / "artifacts" / "baseline.yaml"
+            active.write_text("drifted: true\n", encoding="utf-8")
+            with self.assertRaisesRegex(optimization.OptimizationError, "active artifact.*drift"):
+                optimization_runtime.resume(bundle)
+            optimization.atomic_write(active, baseline.read_bytes(), bundle.manifest["baseline"]["mode"])
+            state = optimization_runtime.resume(bundle)
+            self.assertEqual(state["status"], "retained_incumbent")
+            receipt, exit_code = optimization_runtime.read_receipt(bundle)
+            self.assertEqual(exit_code, 1)
+            self.assertEqual(receipt["outcome"], "retained_baseline")
 
     def test_process_output_and_non_finite_json_fail_closed(self) -> None:
         with self.assertRaisesRegex(optimization.OptimizationError, "output exceeds"):
@@ -333,6 +457,24 @@ class OptimizationLifecycleTests(unittest.TestCase):
         except json.JSONDecodeError as error:
             self.fail(f"CLI did not emit one JSON document: {error}\nstdout={result.stdout}\nstderr={result.stderr}")
         return result, payload
+
+    def test_corrupt_ledger_returns_bounded_drift_response(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            workflow, contract, holdout = write_fixture(root)
+            bundle = optimization.OptimizationBundle.init(
+                workflow, contract, root / "experiment", holdout_path=holdout,
+                experiment_id="drift", product_root=ROOT)
+            lines = bundle.ledger.path.read_bytes().splitlines(keepends=True)
+            event = json.loads(lines[0])
+            event["actor"] = "tampered"
+            lines[0] = optimization.canonical(event)
+            bundle.ledger.path.write_bytes(b"".join(lines))
+            result, payload = self.run_cli("optimize", "status", str(bundle.path))
+            self.assertEqual(result.returncode, 3, payload)
+            self.assertEqual(payload["schema"], "pi-graph.optimize-response.v1")
+            self.assertEqual(payload["error"]["code"], "E_DRIFT")
+            self.assertEqual(payload["next_actions"], [])
 
     def test_cli_baseline_candidate_stop_promote_and_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

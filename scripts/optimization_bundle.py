@@ -547,8 +547,13 @@ class OptimizationBundle:
             (self.path / "development.jsonl", self.manifest["development"]["sha256"], "development corpus"),
             (self.path / self.manifest["baseline"]["snapshot"], self.manifest["baseline"]["sha256"], "baseline snapshot"),
         ]
+        state = self.state()
+        for key in ("baseline", "incumbent"):
+            artifact = state.get(key)
+            if artifact and artifact["id"] != "baseline":
+                checks.append((self.path / artifact["snapshot"], artifact["artifact_sha256"],
+                               f"{key} snapshot"))
         if include_active:
-            state = self.state()
             incumbent = state.get("incumbent") or state.get("baseline")
             expected = incumbent["artifact_sha256"] if incumbent else self.manifest["baseline"]["sha256"]
             checks.append((self.path / "artifacts" / "active.yaml", expected, "active artifact"))
@@ -582,7 +587,18 @@ class OptimizationBundle:
         self.ledger.replay()
 
     def state(self) -> dict[str, Any]:
-        return derive_state(self.experiment_id, self.ledger.replay())
+        state = derive_state(self.experiment_id, self.ledger.replay())
+        # Older v1 commit events omitted semantic_sha256. Recompute it from the
+        # committed snapshot so authoring clients never receive a raw-byte hash
+        # mislabeled as semantic identity.
+        for key in ("baseline", "incumbent"):
+            artifact = state.get(key)
+            if not artifact:
+                continue
+            snapshot = self.path / artifact["snapshot"]
+            if snapshot.is_file() and sha256_file(snapshot) == artifact["artifact_sha256"]:
+                _, artifact["semantic_sha256"] = semantic_workflow(_safe_bytes(snapshot))
+        return state
 
     def write_state(self) -> dict[str, Any]:
         state = self.state()
@@ -621,21 +637,32 @@ class OptimizationBundle:
         _copy_verified(self.path / "artifacts" / "active.yaml", destination)
         return destination
 
-    def apply_candidate(self, candidate: Path, candidate_id: str) -> tuple[str, str]:
-        parent = self.snapshot_active(candidate_id)
-        expected_parent = sha256_file(parent)
-        details = validate_candidate(self, candidate, expected_parent)
+    def apply_candidate(self, candidate: Path, candidate_id: str, *, candidate_raw: bytes | None = None,
+                        expected_parent: str | None = None,
+                        validated: dict[str, Any] | None = None) -> tuple[str, str]:
+        parent = self.path / "candidates" / candidate_id / "parent.yaml"
+        if not parent.exists():
+            parent = self.snapshot_active(candidate_id)
+        parent_hash = sha256_file(parent)
+        if expected_parent is not None and parent_hash != expected_parent:
+            raise OptimizationError("candidate parent snapshot changed before apply")
+        raw = candidate_raw if candidate_raw is not None else _safe_bytes(candidate)
+        details = validated or validate_candidate(self, candidate, parent_hash)
+        if sha256_bytes(raw) != details["artifact_sha256"]:
+            raise OptimizationError("candidate changed after validation")
         destination = self.path / "candidates" / candidate_id / "candidate.yaml"
-        _copy_verified(candidate, destination, details["artifact_sha256"])
-        atomic_write(self.path / "artifacts" / "active.yaml", _safe_bytes(candidate),
-                     self.manifest["baseline"]["mode"])
+        atomic_write(destination, raw, self.manifest["baseline"]["mode"])
+        atomic_write(self.path / "artifacts" / "active.yaml", raw, self.manifest["baseline"]["mode"])
         if sha256_file(self.path / "artifacts" / "active.yaml") != details["artifact_sha256"]:
             raise OptimizationError("candidate apply verification failed")
         return details["artifact_sha256"], details["semantic_sha256"]
 
-    def restore(self, candidate_id: str) -> str:
+    def restore(self, candidate_id: str, expected: str | None = None) -> str:
         snapshot = self.path / "candidates" / candidate_id / "parent.yaml"
-        expected = sha256_file(snapshot)
+        snapshot_hash = sha256_file(snapshot)
+        if expected is not None and snapshot_hash != expected:
+            raise OptimizationError("candidate parent snapshot changed before rollback")
+        expected = snapshot_hash
         atomic_write(self.path / "artifacts" / "active.yaml", _safe_bytes(snapshot),
                      self.manifest["baseline"]["mode"])
         actual = sha256_file(self.path / "artifacts" / "active.yaml")
@@ -672,6 +699,17 @@ def derive_state(experiment_id: str, records: list[dict[str, Any]]) -> dict[str,
         elif event == "candidate_declared":
             state["status"] = "searching"; state["candidate_cursor"] += 1
             state["budget"]["candidates_dispatched"] += 1
+            state["pending_operation"] = {"id": f"candidate:{payload['candidate_id']}",
+                "type": "candidate", "stage": "declared",
+                "candidate_id": payload["candidate_id"], "started_at": record["timestamp"]}
+        elif event == "snapshot_created" and state["pending_operation"]:
+            state["pending_operation"]["stage"] = "snapshotted"
+        elif event == "candidate_mutated" and state["pending_operation"]:
+            state["pending_operation"]["stage"] = "mutated"
+        elif event == "gate_evaluated" and state["pending_operation"]:
+            state["pending_operation"]["stage"] = "gating"
+        elif event == "arm_evaluated" and state["pending_operation"]:
+            state["pending_operation"]["stage"] = "evaluated"
         elif event == "candidate_decided":
             state["budget"]["candidates_completed"] += 1
             decision = payload["decision"]
@@ -686,11 +724,16 @@ def derive_state(experiment_id: str, records: list[dict[str, Any]]) -> dict[str,
                 usage = metrics["usage"]
                 for key in ("tokens", "cost_usd", "wall_seconds"):
                     state["budget"]["usage"][key] += usage[key]
+            if state["pending_operation"]:
+                state["pending_operation"]["stage"] = "decided"
         elif event == "incumbent_committed":
             state["incumbent"] = {"id": payload["candidate_id"], "parent_id": payload["parent_id"],
                 "artifact_sha256": payload["artifact_sha256"], "semantic_sha256": payload.get("semantic_sha256", payload["artifact_sha256"]),
                 "snapshot": f"candidates/{payload['candidate_id']}/candidate.yaml", "score": payload["score"],
                 "gates_passed": True, "committed_event_seq": record["seq"]}
+            state["pending_operation"] = None
+        elif event == "rollback_verified":
+            state["pending_operation"] = None
         elif event == "holdout_access_granted": state["holdout_uses"] += 1; state["status"] = "promotion_running"
         elif event == "resumed":
             state["resume_count"] = payload["resume_count"]
@@ -738,12 +781,13 @@ def _changed_paths(left: Any, right: Any, prefix: str = "") -> set[str]:
 
 
 def validate_candidate(bundle: OptimizationBundle, candidate: Path, expected_parent_sha256: str,
-                       *, mechanism: str | None = None) -> dict[str, Any]:
+                       *, mechanism: str | None = None,
+                       candidate_raw: bytes | None = None) -> dict[str, Any]:
     active = bundle.path / "artifacts" / "active.yaml"
     parent_raw = _safe_bytes(active)
     if sha256_bytes(parent_raw) != expected_parent_sha256:
         raise OptimizationError("candidate parent hash does not match incumbent")
-    candidate_raw = _safe_bytes(candidate)
+    candidate_raw = candidate_raw if candidate_raw is not None else _safe_bytes(candidate)
     parent_value, _ = semantic_workflow(parent_raw)
     candidate_value, semantic_hash = semantic_workflow(candidate_raw)
     changed = sorted(_changed_paths(parent_value, candidate_value))

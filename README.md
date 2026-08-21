@@ -56,9 +56,12 @@ Agents can improve an existing workflow without owning the experiment state mach
 piw optimize scaffold review/steps.yaml --inputs review/dev.jsonl --holdout /private/holdout.jsonl --json
 piw optimize init review/steps.yaml --contract review/optimization-contract.json --out review/optimization/run-001 --json
 piw optimize baseline review/optimization/run-001 --json
-piw optimize candidate review/optimization/run-001 --file /tmp/candidate.yaml \
-  --parent baseline --mechanism synthesis-prompt \
-  --hypothesis "Require claim-level evidence" --json
+piw optimize mechanisms review/optimization/run-001 --json
+piw optimize checkout review/optimization/run-001 --out /tmp/candidate.yaml --json
+# edit exactly one returned mechanism in /tmp/candidate.yaml
+piw optimize diff review/optimization/run-001 --file /tmp/candidate.yaml --parent baseline --json
+piw optimize submit review/optimization/run-001 --file /tmp/candidate.yaml \
+  --parent baseline --hypothesis "Require claim-level evidence" --json
 piw optimize status review/optimization/run-001 --json
 piw optimize stop review/optimization/run-001 --reason "candidate budget complete" --json
 piw optimize promote review/optimization/run-001 --holdout-file /private/holdout.jsonl --json
@@ -97,8 +100,8 @@ machine-readable form.** That is the authoritative reference, not this file.
 | `create` `add` `set` `validate` | Author and check, without spending |
 | `run` `resume` `batch` `batch-status` `batch-cancel` | Execute and recover |
 | `detail` `runs` `show` `compare` `stats` | Evidence after the fact |
-| `eval` `reports` | Compare models over a corpus, judges fixed |
-| `optimize …` | Scaffold, baseline, candidate, keep/revert, stop, one-time promotion |
+| `eval` `reports` | Paired model evidence: regressions, intervals, cost/tokens/latency |
+| `optimize …` | Scaffold, checkout/diff/submit, keep/revert, stop, one-time promotion |
 | `models` | List valid model ids, or pre-flight one with `--check` |
 | `ui` `doctor` `version` `path` | Studio, health, source/install identity, locations |
 

@@ -27,6 +27,7 @@ import argparse
 import copy
 import datetime as dt
 import json
+import math
 import os
 import re
 import shlex
@@ -47,7 +48,10 @@ import yaml
 import control
 import graph as pygraph
 from version_info import VersionInfoError, build_version_info
-from optimization_bundle import OptimizationBundle, OptimizationBusy, OptimizationError, sha256_file
+from optimization_bundle import (
+    OptimizationBundle, OptimizationBusy, OptimizationError, _safe_bytes,
+    sha256_file, validate_candidate, validate_schema,
+)
 from optimize_scaffold import ScaffoldError, build_contract
 from optimization_runner import (
     promote as optimize_promote, read_receipt as optimize_read_receipt,
@@ -89,6 +93,27 @@ def fail(message: str, code: str = "E_COMMAND") -> int:
                         "error": {"code": code, "message": message}},
                        separators=(",", ":")))
     return 2
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON constant: {value}")
+
+
+def _strict_json_loads(value: str) -> Any:
+    parsed = json.loads(value, parse_constant=_reject_json_constant)
+
+    def require_finite(item: Any) -> None:
+        if isinstance(item, float) and not math.isfinite(item):
+            raise ValueError("non-finite JSON number")
+        if isinstance(item, dict):
+            for child in item.values():
+                require_finite(child)
+        elif isinstance(item, list):
+            for child in item:
+                require_finite(child)
+
+    require_finite(parsed)
+    return parsed
 
 
 class PiwArgumentParser(argparse.ArgumentParser):
@@ -1113,7 +1138,11 @@ def cmd_show(args) -> int:
     run_dir = Path(run["path"])
     if not args.step:
         names = sorted(p.name for p in run_dir.iterdir() if p.is_file())
-        out("\n".join(names))
+        if args.json:
+            out(json.dumps({"ok": True, "workflow": workflow["id"], "run": run["id"],
+                            "files": names}, separators=(",", ":")))
+        else:
+            out("\n".join(names))
         return 0
 
     if args.resolved:
@@ -1123,7 +1152,8 @@ def cmd_show(args) -> int:
         except pygraph.WorkflowParseError as error:
             return fail(str(error))
         if args.json:
-            out(json.dumps(info, separators=(",", ":")))
+            out(json.dumps({"ok": True, "workflow": workflow["id"], "run": run["id"],
+                            "step": args.step, "resolved": info}, separators=(",", ":")))
             return 0
         if info["missing"]:
             print(f"warning: upstream artifacts missing: {', '.join(info['missing'])}", file=sys.stderr)
@@ -1139,7 +1169,13 @@ def cmd_show(args) -> int:
         return fail("invalid step name")
     if not candidate.is_file():
         return fail(f"no artifact '{candidate.name}' in {run_dir.name}")
-    out(candidate.read_text(encoding="utf-8", errors="replace").rstrip())
+    content = candidate.read_text(encoding="utf-8", errors="replace").rstrip()
+    if args.json:
+        out(json.dumps({"ok": True, "workflow": workflow["id"], "run": run["id"],
+                        "step": args.step, "path": str(candidate), "content": content},
+                       separators=(",", ":")))
+    else:
+        out(content)
     return 0
 
 
@@ -1699,7 +1735,13 @@ def cmd_set(args) -> int:
 
 def cmd_path(args) -> int:
     workflow = need(args.workflow)
-    out(workflow["path"] if not args.dir else workflow["cwd"])
+    value = workflow["path"] if not args.dir else workflow["cwd"]
+    if args.json:
+        out(json.dumps({"ok": True, "workflow": workflow["id"],
+                        "kind": "directory" if args.dir else "workflow",
+                        "path": value}, separators=(",", ":")))
+    else:
+        out(value)
     return 0
 
 
@@ -2092,7 +2134,12 @@ def cmd_schedule(args) -> int:
     if result.returncode != 0:
         return fail(output or "Loops rejected the automation")
     if args.json:
-        out(output)
+        try:
+            scheduler: Any = _strict_json_loads(output)
+        except (ValueError, TypeError):
+            scheduler = {"raw": output}
+        out(json.dumps({"ok": True, "id": loop_id, "workflow": workflow["id"],
+                        "scheduler": scheduler}, separators=(",", ":")))
     else:
         out(f"scheduled {loop_id} · {workflow['name']}")
         out(output)
@@ -2124,7 +2171,8 @@ def cmd_automations(args) -> int:
     if result.returncode != 0:
         return fail((result.stderr or result.stdout).strip())
     try:
-        rows = [row for row in json.loads(result.stdout) if "PI_GRAPH_AUTOMATION=1" in str(row.get("action_payload", ""))]
+        rows = [row for row in _strict_json_loads(result.stdout)
+                if "PI_GRAPH_AUTOMATION=1" in str(row.get("action_payload", ""))]
     except (ValueError, TypeError, AttributeError):
         return fail("Loops returned malformed automation data")
     if args.json:
@@ -2142,20 +2190,36 @@ def cmd_automation(args) -> int:
     output = (result.stdout or result.stderr).strip()
     if result.returncode != 0:
         return fail(output or f"Loops {args.action} failed")
-    out(output)
+    if args.json:
+        try:
+            value: Any = _strict_json_loads(output)
+        except (ValueError, TypeError):
+            value = {"raw": output}
+        out(json.dumps({"ok": True, "action": args.action, "id": args.id,
+                        "result": value}, separators=(",", ":")))
+    else:
+        out(output)
     return 0
 
 
 def _optimize_response(command: str, bundle: OptimizationBundle | None, result: Any,
                        *, ok: bool = True, error: dict[str, Any] | None = None) -> dict[str, Any]:
-    state = bundle.state() if bundle is not None and (bundle.path / "events.jsonl").exists() else None
+    state = (bundle.state() if ok and bundle is not None and
+             (bundle.path / "events.jsonl").exists() else None)
+    effective_status = ("interrupted" if state and state.get("pending_operation") else
+                        state["status"] if state else None)
+    if (ok and bundle is not None and state and
+            state["status"] in {"promoted", "promotion_reverted", "retained_incumbent"} and
+            not _optimization_receipt_committed(bundle)):
+        effective_status = "receipt_pending"
     return {
         "schema": "pi-graph.optimize-response.v1", "ok": ok, "command": command,
         "experiment_id": bundle.experiment_id if bundle is not None else None,
         "state": state["status"] if state else None, "result": result if ok else None,
         "counters": state["budget"] if state else {},
         "paths": {"experiment": str(bundle.path)} if bundle is not None else {},
-        "next": _optimize_next(state["status"] if state else None),
+        "next": _optimize_next(effective_status) if ok else [],
+        "next_actions": _optimize_next_actions(bundle, state) if ok else [],
         **({"error": error} if error else {}),
     }
 
@@ -2164,10 +2228,140 @@ def _optimize_next(status: str | None) -> list[str]:
     return {
         "created": ["baseline"], "baseline_verified": ["candidate", "stop"],
         "searching": ["candidate", "stop"], "plateau": ["promote"],
-        "budget_exhausted": ["promote"], "stopped_by_user": ["promote"],
+        "target_achieved": ["promote"], "budget_exhausted": ["promote"],
+        "stopped_by_user": ["promote"],
         "promotion_running": ["resume"], "promoted": ["receipt"],
         "promotion_reverted": ["receipt"], "retained_incumbent": ["receipt"],
+        "baseline_running": ["resume"], "resuming": ["resume"], "failed": ["resume"],
+        "interrupted": ["resume"],
+        "receipt_pending": ["resume"],
     }.get(status, [])
+
+
+def _optimize_next_actions(bundle: OptimizationBundle | None,
+                           state: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if bundle is None or state is None:
+        return []
+    experiment = str(bundle.path)
+    status = state["status"]
+    incumbent = state.get("incumbent") or state.get("baseline")
+    if state.get("pending_operation"):
+        status = "interrupted"
+    if status == "created":
+        return [{"action": "baseline", "argv": ["piw", "optimize", "baseline", experiment, "--json"],
+                 "requires": {}}]
+    if status in {"baseline_running", "promotion_running", "interrupted", "resuming", "failed"}:
+        return [{"action": "resume", "argv": ["piw", "optimize", "resume", experiment, "--json"],
+                 "requires": {}}]
+    if status in {"baseline_verified", "searching"} and incumbent:
+        parent = incumbent["id"]
+        return [
+            {"action": "mechanisms", "argv": ["piw", "optimize", "mechanisms", experiment, "--json"],
+             "requires": {}},
+            {"action": "checkout", "argv": ["piw", "optimize", "checkout", experiment,
+                                               "--out", "${candidate_file}", "--json"],
+             "requires": {"candidate_file": {"type": "path"}}},
+            {"action": "diff", "argv": ["piw", "optimize", "diff", experiment,
+                                           "--file", "${candidate_file}", "--parent", parent, "--json"],
+             "requires": {"candidate_file": {"type": "path"}}},
+            {"action": "submit", "argv": ["piw", "optimize", "submit", experiment,
+                                             "--file", "${candidate_file}", "--parent", parent,
+                                             "--hypothesis", "${hypothesis}", "--json"],
+             "requires": {"candidate_file": {"type": "path"},
+                          "hypothesis": {"type": "string", "minLength": 1, "maxLength": 4000}}},
+            {"action": "stop", "argv": ["piw", "optimize", "stop", experiment,
+                                           "--reason", "${reason}", "--json"],
+             "requires": {"reason": {"type": "string", "minLength": 1}}},
+        ]
+    if status in {"plateau", "target_achieved", "budget_exhausted", "stopped_by_user"}:
+        if incumbent and incumbent["id"] == "baseline":
+            return [{"action": "promote", "argv": ["piw", "optimize", "promote", experiment, "--json"],
+                     "requires": {}}]
+        return [{"action": "promote", "argv": ["piw", "optimize", "promote", experiment,
+                                                  "--holdout-file", "${holdout_file}", "--json"],
+                 "requires": {"holdout_file": {"type": "path"}}}]
+    if status in {"promoted", "promotion_reverted", "retained_incumbent"}:
+        if not _optimization_receipt_committed(bundle):
+            return [{"action": "resume", "argv": ["piw", "optimize", "resume", experiment, "--json"],
+                     "requires": {}}]
+        return [{"action": "receipt", "argv": ["piw", "optimize", "receipt", experiment, "--json"],
+                 "requires": {}}]
+    return []
+
+
+def _optimization_receipt_committed(bundle: OptimizationBundle) -> bool:
+    receipt = bundle.path / "receipts" / "final.json"
+    if not receipt.is_file():
+        return False
+    receipt_hash = sha256_file(receipt)
+    return any(record["type"] == "receipt_written" and
+               record["payload"].get("sha256") == receipt_hash
+               for record in bundle.ledger.replay())
+
+
+def _optimization_authoring_state(bundle: OptimizationBundle, parent_id: str | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+    bundle.verify_integrity()
+    state = bundle.state()
+    if state.get("pending_operation"):
+        raise OptimizationError("experiment has an interrupted operation; run optimize resume first")
+    if state["status"] not in {"baseline_verified", "searching"}:
+        raise OptimizationError(f"candidate authoring is illegal from state {state['status']}")
+    incumbent = state.get("incumbent")
+    if not incumbent:
+        raise OptimizationError("current incumbent is missing")
+    if parent_id is not None and parent_id != incumbent["id"]:
+        raise OptimizationError(f"candidate parent must be current incumbent {incumbent['id']}")
+    return state, incumbent
+
+
+def _validate_optimization_candidate(bundle: OptimizationBundle, candidate: Path,
+                                     parent_sha256: str) -> dict[str, Any]:
+    try:
+        raw = _safe_bytes(candidate)
+        details = validate_candidate(bundle, candidate, parent_sha256, candidate_raw=raw)
+        value = yaml.safe_load(raw)
+        validate_schema(bundle.product_root, "workflow.schema.json", value)
+        pygraph.parse_steps_text(raw.decode("utf-8"), candidate)
+    except OptimizationError:
+        raise
+    except Exception as error:
+        raise OptimizationError(f"candidate is not a valid workflow: {error}") from error
+    return details
+
+
+def _checkout_incumbent(bundle: OptimizationBundle, destination: Path) -> dict[str, Any]:
+    destination = destination.expanduser().absolute()
+    if not destination.parent.is_dir():
+        raise OptimizationError(f"checkout parent directory does not exist: {destination.parent}")
+    if destination.exists() or destination.is_symlink():
+        raise OptimizationError(f"refusing to overwrite checkout destination: {destination}")
+    resolved_parent = destination.parent.resolve()
+    destination = resolved_parent / destination.name
+    for forbidden, label in ((bundle.path, "experiment"), (bundle.product_root, "product")):
+        try:
+            destination.relative_to(forbidden.resolve())
+        except ValueError:
+            pass
+        else:
+            raise OptimizationError(f"checkout destination cannot be inside the {label} root: {destination}")
+    raw = _safe_bytes(bundle.path / "artifacts" / "active.yaml")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(destination, flags, 0o600)
+    try:
+        with os.fdopen(fd, "wb", closefd=False) as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+    finally:
+        os.close(fd)
+    directory_fd = os.open(resolved_parent, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+    return {"output_sha256": sha256_file(destination), "bytes": len(raw), "mode": 0o600}
 
 
 def _emit_optimize_json(payload: dict[str, Any]) -> None:
@@ -2212,6 +2406,12 @@ def cmd_optimize(args) -> int:
                     f"piw optimize init {args.workflow} --contract {contract_out} --json",
                     f"piw optimize baseline <experiment-dir> --json",
                 ],
+                "next_actions": [{
+                    "action": "init",
+                    "argv": ["piw", "optimize", "init", args.workflow, "--contract",
+                             str(contract_out), "--json"],
+                    "requires": {},
+                }],
             }
             if args.json:
                 _emit_optimize_json(payload)
@@ -2230,12 +2430,51 @@ def cmd_optimize(args) -> int:
             result, exit_code = {"manifest_sha256": sha256_file(bundle.path / "manifest.json")}, 0
         else:
             bundle = OptimizationBundle(Path(args.experiment))
-            if command == "baseline": result, exit_code = optimize_baseline(bundle), 0
+            if command == "mechanisms":
+                with bundle.lock():
+                    _state, incumbent = _optimization_authoring_state(bundle)
+                    result = {"incumbent": incumbent,
+                              "mechanisms": bundle.contract()["boundaries"]["mutable"]}
+                exit_code = 0
+            elif command == "checkout":
+                with bundle.lock():
+                    _state, incumbent = _optimization_authoring_state(bundle)
+                    destination = Path(args.out)
+                    result = {"parent_id": incumbent["id"],
+                              "parent_sha256": incumbent["artifact_sha256"],
+                              "semantic_sha256": incumbent["semantic_sha256"],
+                              "path": str(destination.expanduser().absolute()),
+                              **_checkout_incumbent(bundle, destination)}
+                exit_code = 0
+            elif command == "diff":
+                with bundle.lock():
+                    _state, incumbent = _optimization_authoring_state(bundle, args.parent)
+                    details = _validate_optimization_candidate(
+                        bundle, Path(args.file), incumbent["artifact_sha256"])
+                    result = {"parent_id": incumbent["id"], **details}
+                exit_code = 0
+            elif command == "submit":
+                hypothesis = args.hypothesis.strip()
+                if not hypothesis or len(hypothesis) > 4000:
+                    raise OptimizationError("--hypothesis must contain 1..4000 characters")
+                with bundle.lock():
+                    _state, incumbent = _optimization_authoring_state(bundle, args.parent)
+                    details = _validate_optimization_candidate(
+                        bundle, Path(args.file), incumbent["artifact_sha256"])
+                result, exit_code = optimize_candidate(
+                    bundle, Path(args.file), args.parent, details["mechanism"], hypothesis)
+                result = {"parent_id": args.parent, "mechanism": details["mechanism"],
+                          "diff_sha256": details["diff_sha256"], **result}
+            elif command == "baseline": result, exit_code = optimize_baseline(bundle), 0
             elif command == "candidate":
+                hypothesis = args.hypothesis.strip()
+                if not hypothesis or len(hypothesis) > 4000:
+                    raise OptimizationError("--hypothesis must contain 1..4000 characters")
                 result, exit_code = optimize_candidate(bundle, Path(args.file), args.parent,
-                                                        args.mechanism, args.hypothesis)
+                                                        args.mechanism, hypothesis)
             elif command == "status":
-                bundle.verify_integrity()
+                current_state = bundle.state()
+                bundle.verify_integrity(include_active=not bool(current_state.get("pending_operation")))
                 records = bundle.ledger.replay()[-args.history_limit:]
                 result = {"status": bundle.status(), "history": [
                     {"seq": row["seq"], "timestamp": row["timestamp"], "type": row["type"],
@@ -2261,7 +2500,8 @@ def cmd_optimize(args) -> int:
         code, exit_code, error_message = "E_CONTRACT", 2, str(caught)
     except OptimizationError as caught:
         error_message = str(caught)
-        code = "E_DRIFT" if any(word in error_message for word in ("fingerprint", "integrity", "hash mismatch", "tamper")) else "E_CONTRACT"
+        code = "E_DRIFT" if any(word in error_message for word in (
+            "fingerprint", "integrity", "hash mismatch", "tamper", "torn")) else "E_CONTRACT"
         exit_code = 3 if code == "E_DRIFT" else 2
     except (OSError, ValueError, json.JSONDecodeError) as caught:
         code, exit_code, error_message = "E_USAGE", 2, str(caught)
@@ -2336,6 +2576,16 @@ def build_parser() -> argparse.ArgumentParser:
     optimize_scaffold.add_argument("--contract-out",
                                    help="contract destination (default: <workflow dir>/optimization-contract.json)")
     add_optimize("baseline", "evaluate the untouched baseline")
+    add_optimize("mechanisms", "list the current incumbent and frozen mutable mechanisms")
+    optimize_checkout = add_optimize("checkout", "export exact current-incumbent YAML without overwriting")
+    optimize_checkout.add_argument("--out", required=True, help="new candidate YAML path outside product/experiment roots")
+    optimize_diff = add_optimize("diff", "validate a candidate and infer its one changed mechanism")
+    optimize_diff.add_argument("--file", required=True, help="candidate workflow YAML")
+    optimize_diff.add_argument("--parent", required=True, help="current incumbent id returned by checkout")
+    optimize_submit = add_optimize("submit", "infer and evaluate a one-mechanism candidate")
+    optimize_submit.add_argument("--file", required=True, help="candidate workflow YAML")
+    optimize_submit.add_argument("--parent", required=True, help="current incumbent id returned by checkout")
+    optimize_submit.add_argument("--hypothesis", required=True, help="bounded candidate hypothesis")
     optimize_candidate_parser = add_optimize("candidate", "evaluate one declared one-mechanism candidate")
     optimize_candidate_parser.add_argument("--file", required=True, help="candidate workflow YAML")
     optimize_candidate_parser.add_argument("--parent", required=True, help="current incumbent id")
@@ -2403,7 +2653,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     batch = add("batch", "run the exact workflow across an isolated input corpus")
     batch.add_argument("--inputs", required=True, help="corpus: .jsonl, a directory, or a lines file")
-    batch.add_argument("--input-name", default="input.txt",
+    batch.add_argument("--input-name", "--input-file", dest="input_name", default="input.txt",
                        help="filename each item's input is staged as inside its run (default: input.txt)")
     batch.add_argument("--parallel", type=int, choices=range(1, 33), default=4,
                        help="concurrent items, separate from workflow workers")
@@ -2437,7 +2687,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     evaluate = add("eval", "compare models over a corpus (judges held fixed)")
     evaluate.add_argument("--inputs", required=True)
-    evaluate.add_argument("--input-name", default="input.txt",
+    evaluate.add_argument("--input-name", "--input-file", dest="input_name", default="input.txt",
                           help="filename each corpus item's content is staged as (default: input.txt)")
     evaluate.add_argument("--models", required=True, help="comma-separated model ids")
     evaluate.add_argument("--parallel", type=int)

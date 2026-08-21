@@ -6,6 +6,11 @@ All notable changes to pi graph are documented here.
 
 ### Agent ergonomics
 
+- Full model/tool/agent/judge/QA and optimization-promotion journeys now run token-free in CI through one deterministic fake-Pi protocol harness; malformed, unsettled, provider-error, extension-error, retry-error, and blank streams are classified and evidenced.
+- `piw optimize mechanisms`, `checkout`, `diff`, and `submit` remove manual incumbent copying and mechanism/parent reconstruction. Checkout is no-overwrite and byte exact; diff is free; submit infers the one changed mechanism; stale parents fail closed.
+- Optimize responses now include executable `next_actions` argv arrays with current parent IDs and required placeholders while retaining compact `next` IDs.
+- `piw eval` reports paired item regressions/improvements, Wilson pass intervals, median/p95 cost and latency, small-corpus warnings, and an explicit recommendation that may remain inconclusive.
+- `path`, every `show` mode, `schedule`, and `automation` now return bounded parseable objects under `--json`; external scheduler text is wrapped rather than passed through as fake JSON.
 - `piw optimize scaffold` generates a schema-valid starter optimization contract from a workflow: one mutable mechanism per model step, a frozen default evaluator/parser beside the contract, digest-only holdout metadata, and conservative budgets. `piw optimize init` accepts it unchanged.
 - Every command now emits a structured `{schema: pi-graph.error.v1}` error document on stdout under `--json`; usage errors included. Typo'd subcommands suggest the nearest valid name.
 - New `piw models` lists valid model ids from `pi --list-models`; `--check <id>` pre-flights an id (with a near-match suggestion) before any paid run.
@@ -18,6 +23,7 @@ All notable changes to pi graph are documented here.
 
 - `piw optimize` now freezes an experiment contract, evaluates the untouched baseline through the canonical batch path, accepts one-mechanism candidates, and makes uncertainty-aware keep/revert decisions with byte-perfect rollback.
 - Experiments use one-writer locks, immutable source/runtime fingerprints, a fsynced hash-chained ledger, finite candidate/time/token/cost/failure/plateau stops, committed-prefix recovery, and bounded machine-readable responses.
+- Recovery blocks authoring, stop, and promotion while a candidate is pending; it completes committed keep decisions without contradictory rollback and repairs terminal receipts only from intact committed evidence.
 - Private holdout bytes remain unstaged until terminal promotion, can be reserved at most once, and produce a signed local receipt without committing, pushing, merging, deploying, or writing production state.
 - `piw version --json` and doctor expose source/install fingerprints; installs receive an atomic integrity manifest. `piw eval --json` now emits one JSON receipt.
 

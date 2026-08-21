@@ -20,11 +20,15 @@ piw optimize init review/steps.yaml \
 # 2. The untouched baseline must pass through the exact candidate path first.
 piw optimize baseline review/optimization/run-001 --json
 
-# 3. An agent may propose one mechanism from contract.boundaries.mutable.
-piw optimize candidate review/optimization/run-001 \
-  --file /tmp/candidate.yaml \
-  --parent baseline \
-  --mechanism synthesis-prompt \
+# 3. Export the exact incumbent, edit one frozen mechanism, validate it for
+#    free, then submit. diff/submit infer the mechanism; stale parents fail.
+piw optimize mechanisms review/optimization/run-001 --json
+piw optimize checkout review/optimization/run-001 --out /tmp/candidate.yaml --json
+# edit /tmp/candidate.yaml
+piw optimize diff review/optimization/run-001 \
+  --file /tmp/candidate.yaml --parent baseline --json
+piw optimize submit review/optimization/run-001 \
+  --file /tmp/candidate.yaml --parent baseline \
   --hypothesis "Require claim-level evidence before synthesis" --json
 
 # Use the returned incumbent id as the next --parent. Rejected candidates are
@@ -40,6 +44,11 @@ piw optimize receipt review/optimization/run-001 --json
 ```
 
 `promoted` means the local evidence supports promotion. The optimization controller itself does **not** invoke commit, push, deploy, merge, or production-write operations. Workflow commands and agent nodes still run with the invoking user's normal authority; `authorized_effects` and `network` are audited declarations, not an OS sandbox. Use an external sandbox/container when strict effect or network isolation is required.
+
+Every optimize response keeps the compact `next` action IDs and also returns
+`next_actions`: complete argv arrays, required placeholders, the current parent
+ID, and legal recovery commands. Agents should execute those arrays rather than
+reconstructing state transitions from prose.
 
 ## What the scaffold generates
 
@@ -79,7 +88,7 @@ Use:
 piw optimize resume EXPERIMENT --json
 ```
 
-Candidate interruption restores the parent snapshot without redispatch. A holdout interruption emits non-promotion evidence and permanently refuses another holdout invocation.
+Candidate interruption never redispatches: an unfinished evaluation restores the parent snapshot, while a committed keep decision finishes the incumbent commit. Authoring, stop, and promotion remain blocked until recovery completes. A holdout interruption emits non-promotion evidence and permanently refuses another holdout invocation. If a terminal decision was committed before its receipt, `resume` verifies the active artifact and completes or commits the receipt; committed receipt drift fails closed.
 
 ## Version and install identity
 
