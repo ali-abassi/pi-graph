@@ -411,7 +411,15 @@ def run_candidate(bundle: OptimizationBundle, candidate_file: Path, parent_id: s
                                                        "reason": str(error)[:4000], "trusted_score": False, "metrics": None})
             bundle.ledger.append("rollback_verified", {"candidate_id": candidate_id,
                 "restored_sha256": restored, "snapshot_sha256": parent_hash})
-            bundle.write_state()
+            # The stop check below runs only on the return path; an exception
+            # must still close the search when this failure exhausted the
+            # plateau or budget budget, or status would keep claiming
+            # "searching" after the experiment is actually over.
+            state = bundle.write_state()
+            reason = stop_reason(state, bundle.manifest["budgets"], elapsed_wall_seconds=_elapsed(bundle.manifest["created_at"]))
+            if reason and state["status"] not in {"plateau", "budget_exhausted", "target_achieved"}:
+                _terminal_for_stop(bundle, state, reason)
+                bundle.write_state()
             raise
         state = bundle.write_state()
         reason = stop_reason(state, bundle.manifest["budgets"], elapsed_wall_seconds=_elapsed(bundle.manifest["created_at"]))
