@@ -27,8 +27,9 @@ class VersionInfoTests(unittest.TestCase):
             shutil.copy2(ROOT / relative, target)
 
     def test_metadata_versions_match_authoritative_version(self) -> None:
+        authoritative = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         versions = version_info.metadata_versions(ROOT)
-        self.assertEqual(set(versions.values()), {"0.1.0"})
+        self.assertEqual(set(versions.values()), {authoritative})
 
     def test_product_digest_is_content_bound_and_rejects_inventory_symlinks(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

@@ -50,9 +50,10 @@ piw compare review/steps.yaml BASELINE_RUN CANDIDATE_RUN
 
 ## Optimize workflows deterministically
 
-Agents can improve an existing workflow without owning the experiment state machine:
+Agents can improve an existing workflow without owning the experiment state machine. Scaffold a valid contract from the workflow, tune it, then run the bounded loop:
 
 ```bash
+piw optimize scaffold review/steps.yaml --inputs review/dev.jsonl --holdout /private/holdout.jsonl --json
 piw optimize init review/steps.yaml --contract review/optimization-contract.json --out review/optimization/run-001 --json
 piw optimize baseline review/optimization/run-001 --json
 piw optimize candidate review/optimization/run-001 --file /tmp/candidate.yaml \
@@ -97,7 +98,8 @@ machine-readable form.** That is the authoritative reference, not this file.
 | `run` `resume` `batch` `batch-status` `batch-cancel` | Execute and recover |
 | `detail` `runs` `show` `compare` `stats` | Evidence after the fact |
 | `eval` `reports` | Compare models over a corpus, judges fixed |
-| `optimize …` | Baseline, candidate, keep/revert, stop, one-time promotion |
+| `optimize …` | Scaffold, baseline, candidate, keep/revert, stop, one-time promotion |
+| `models` | List valid model ids, or pre-flight one with `--check` |
 | `ui` `doctor` `version` `path` | Studio, health, source/install identity, locations |
 
 Every new normal run is a self-contained local bundle: an exact immutable
@@ -179,6 +181,12 @@ If your steps are deterministic code, use a real orchestrator.
 `PI_GRAPH_ROOTS` (discovery paths), `PI_GRAPH_HOME`,
 `PI_GRAPH_BIN_DIR`, `PI_GRAPH_PYTHON`, `PI_GRAPH_MODEL`,
 `PI_GRAPH_QA_MODEL`.
+
+Workflow ids resolve against the enclosing git project root, this checkout's
+`examples/` and `templates/`, and roots registered in `PI_GRAPH_HOME/roots.json`
+(override with `PI_GRAPH_ROOTS`). Any workflow positional also accepts a
+directory containing `steps.yaml`, or the yaml path itself. With `--json`,
+failures emit one `{schema: pi-graph.error.v1}` document on stdout.
 
 ## Develop
 

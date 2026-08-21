@@ -5,8 +5,14 @@ Pi Graph can wrap an existing `steps.yaml` in a bounded experiment without creat
 ## Lifecycle
 
 ```bash
-# 1. Freeze the workflow, evaluator, parser, development corpus, boundaries,
-#    model/tool/runtime pins, budgets, and private-holdout digest.
+# 0. Generate a valid starter contract from the workflow. Both corpora are
+#    JSONL and live beside steps.yaml; the holdout contributes only its
+#    digest and count — never its path or bytes.
+piw optimize scaffold review/steps.yaml \
+  --inputs review/dev.jsonl --holdout /private/holdout.jsonl --json
+
+# 1. Read and tune review/optimization-contract.json: budgets, minimum_gain,
+#    promotion thresholds, boundaries.mutable. Then freeze it.
 piw optimize init review/steps.yaml \
   --contract review/optimization-contract.json \
   --out review/optimization/run-001 --json
@@ -34,6 +40,16 @@ piw optimize receipt review/optimization/run-001 --json
 ```
 
 `promoted` means the local evidence supports promotion. The optimization controller itself does **not** invoke commit, push, deploy, merge, or production-write operations. Workflow commands and agent nodes still run with the invoking user's normal authority; `authorized_effects` and `network` are audited declarations, not an OS sandbox. Use an external sandbox/container when strict effect or network isolation is required.
+
+## What the scaffold generates
+
+`piw optimize scaffold` derives every contract section mechanically, so an agent tunes instead of authoring:
+
+- `boundaries.mutable`: one mechanism per model step (`<step>-prompt`, `<step>-model`, `<step>-thinking`) plus `default-model`, `default-thinking`, and `qa-prompt` when QA exists. Candidates must change exactly one declared pointer.
+- `evaluation.evaluator` / `evaluation.parser`: both point at a frozen copy of [`scripts/optimization_eval.py`](../scripts/optimization_eval.py) written beside the contract as `optimization-eval.py`. It scores the canonical child batch receipt: pass rate over every corpus item, batch-recorded usage, degenerate uncertainty bounds. It requires `hard_gates: []`; declare a custom evaluator before adding hard gates.
+- `execution`: provider/model/thinking split from the workflow's pinned default; `cache: false`, `require_all: true`, conservative parallel/timeouts.
+- `budgets` / `promotion`: small finite defaults (6 candidates, plateau after 3 non-keeps, promotion drop ceiling 0.05). Tune before spending.
+- The contract is schema-validated before it is written, so `optimize init` accepts it unchanged.
 
 ## Frozen contract
 

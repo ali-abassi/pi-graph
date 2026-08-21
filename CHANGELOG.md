@@ -4,6 +4,16 @@ All notable changes to pi graph are documented here.
 
 ## Unreleased
 
+### Agent ergonomics
+
+- `piw optimize scaffold` generates a schema-valid starter optimization contract from a workflow: one mutable mechanism per model step, a frozen default evaluator/parser beside the contract, digest-only holdout metadata, and conservative budgets. `piw optimize init` accepts it unchanged.
+- Every command now emits a structured `{schema: pi-graph.error.v1}` error document on stdout under `--json`; usage errors included. Typo'd subcommands suggest the nearest valid name.
+- New `piw models` lists valid model ids from `pi --list-models`; `--check <id>` pre-flights an id (with a near-match suggestion) before any paid run.
+- `piw eval --json` exits non-zero when items fail, aligning the receipt with shell semantics; the receipt names its artifacts via `results_path`.
+- `detail`, `compare`, `set`, and `run --node` failures now list valid run/step ids or point at `piw runs`.
+- `piw batch` and `piw eval` take `--input-name` for the per-item staged filename; `--input-file` still works there but warns, since it never meant a path.
+- Help text documents workflow discovery scope (git root, examples/templates, roots registry, `PI_GRAPH_ROOTS`) and that any workflow positional accepts a directory or steps.yaml path.
+
 ### Deterministic workflow optimization
 
 - `piw optimize` now freezes an experiment contract, evaluates the untouched baseline through the canonical batch path, accepts one-mechanism candidates, and makes uncertainty-aware keep/revert decisions with byte-perfect rollback.

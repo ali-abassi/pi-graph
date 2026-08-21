@@ -48,6 +48,7 @@ import control
 import graph as pygraph
 from version_info import VersionInfoError, build_version_info
 from optimization_bundle import OptimizationBundle, OptimizationBusy, OptimizationError, sha256_file
+from optimize_scaffold import ScaffoldError, build_contract
 from optimization_runner import (
     promote as optimize_promote, read_receipt as optimize_read_receipt,
     resume as optimize_resume, run_baseline as optimize_baseline,
@@ -71,14 +72,44 @@ KIND_LABEL = {
 
 STATUS_MARK = {True: "ok", False: "FAIL"}
 
+# Set from parsed args in main(). When true, every failure ALSO emits one
+# {schema: pi-graph.error.v1} document on stdout, so an agent parsing stdout
+# never has to triage stderr to learn that a command failed.
+_JSON_MODE = False
+
 
 def out(line: str = "") -> None:
     print(line, flush=True)
 
 
-def fail(message: str) -> int:
+def fail(message: str, code: str = "E_COMMAND") -> int:
     print(f"error: {message}", file=sys.stderr)
+    if _JSON_MODE:
+        out(json.dumps({"schema": "pi-graph.error.v1", "ok": False,
+                        "error": {"code": code, "message": message}},
+                       separators=(",", ":")))
     return 2
+
+
+class PiwArgumentParser(argparse.ArgumentParser):
+    """Usage errors honor --json and suggest near matches instead of dumping choices."""
+
+    def error(self, message: str) -> None:
+        import difflib
+        if "invalid choice:" in message:
+            match = re.search(r"invalid choice: '([^']+)' \(choose from (.+)\)", message)
+            if match:
+                bad, raw_choices = match.group(1), match.group(2)
+                choices = re.findall(r"'([^']+)'", raw_choices)
+                near = difflib.get_close_matches(bad, choices, n=1)
+                if near:
+                    message = f"unknown command '{bad}' — did you mean '{near[0]}'?"
+        if "--json" in sys.argv[1:]:
+            payload = {"schema": "pi-graph.error.v1", "ok": False,
+                       "error": {"code": "E_USAGE", "message": message}}
+            print(json.dumps(payload, separators=(",", ":")), file=sys.stdout)
+            self.exit(2)
+        super().error(message)
 
 
 def resolve(identifier: str) -> dict[str, Any] | None:
@@ -928,9 +959,10 @@ def cmd_run(args) -> int:
     workflow = need(args.workflow)
     graph = graph_for(workflow)
     regen = [n for n in (args.node or []) if n]
-    unknown = [n for n in regen if n not in {node["id"] for node in graph["nodes"]}]
+    known_ids = [node["id"] for node in graph["nodes"]]
+    unknown = [n for n in regen if n not in known_ids]
     if unknown:
-        return fail(f"unknown step(s): {', '.join(unknown)}")
+        return fail(f"unknown step(s): {', '.join(unknown)} (steps: {', '.join(known_ids)})")
 
     if args.input is not None and args.input_file:
         return fail("choose --input or --input-file, not both")
@@ -1179,7 +1211,7 @@ def cmd_detail(args) -> int:
     run = (matching_run(runs, args.run)
            if args.run else runs[0])
     if not run:
-        return fail(f"no run matching '{args.run}'")
+        return fail(f"no run matching '{args.run}' (try: piw runs {workflow['id']})")
 
     try:
         detail = pygraph.run_detail(Path(workflow["path"]), Path(run["path"]))
@@ -1269,9 +1301,9 @@ def cmd_compare(args) -> int:
     baseline_run = selected(args.baseline)
     candidate_run = selected(args.candidate)
     if not baseline_run:
-        return fail(f"no baseline run matching '{args.baseline}'")
+        return fail(f"no baseline run matching '{args.baseline}' (try: piw runs {workflow['id']})")
     if not candidate_run:
-        return fail(f"no candidate run matching '{args.candidate}'")
+        return fail(f"no candidate run matching '{args.candidate}' (try: piw runs {workflow['id']})")
 
     try:
         baseline = pygraph.run_detail(Path(workflow["path"]), Path(baseline_run["path"]))
@@ -1365,11 +1397,21 @@ def _run_skill(script: str, workflow: dict[str, Any], extra: list[str]) -> int:
     return subprocess.run(command, cwd=workflow["cwd"], check=False).returncode
 
 
+def _warn_deprecated_input_file() -> None:
+    # batch/eval stage each item's content under this NAME inside the run; they
+    # never read a path. The old flag name implied the opposite and silently
+    # did the wrong thing for agents copying `run` invocations.
+    if "--input-file" in sys.argv[1:]:
+        print("warning: --input-file is deprecated for batch/eval, where it names the "
+              "per-item staged FILENAME, not a path; use --input-name", file=sys.stderr)
+
+
 def cmd_batch(args) -> int:
     """Run one frozen workflow contract across an isolated input corpus."""
     workflow = need(args.workflow)
+    _warn_deprecated_input_file()
     inputs = str(Path(args.inputs).expanduser().resolve())
-    extra = ["--inputs", inputs, "--input-file", args.input_file,
+    extra = ["--inputs", inputs, "--input-file", args.input_name,
              "--parallel", str(args.parallel), "--item-timeout", str(args.item_timeout)]
     if args.limit:
         extra += ["--limit", str(args.limit)]
@@ -1487,7 +1529,8 @@ def cmd_eval(args) -> int:
     stay fixed, so the evaluator is held constant while the generator varies.
     """
     workflow = need(args.workflow)
-    extra = ["--inputs", args.inputs, "--input-file", args.input_file, "--models", args.models]
+    _warn_deprecated_input_file()
+    extra = ["--inputs", args.inputs, "--input-file", args.input_name, "--models", args.models]
     if args.parallel:
         extra += ["--parallel", str(args.parallel)]
     if args.limit:
@@ -1527,6 +1570,9 @@ def cmd_reports(args) -> int:
 
 def cmd_set(args) -> int:
     workflow = need(args.workflow)
+    known_steps = [node["id"] for node in graph_for(workflow)["nodes"]]
+    if args.step not in known_steps:
+        return fail(f"unknown step '{args.step}' (steps: {', '.join(known_steps)})")
     changes: dict[str, Any] = {}
     for key in ("model", "thinking", "gate", "tools"):
         value = getattr(args, key)
@@ -1850,6 +1896,67 @@ def cmd_doctor(args) -> int:
     return 0 if core_ok else 1
 
 
+def cmd_models(args) -> int:
+    """Expose valid model ids so agents never discover typos at paid runtime."""
+    import difflib
+    pi_bin = shutil.which("pi")
+    if not pi_bin:
+        return fail("pi is not on PATH — model ids cannot be listed. Install it with "
+                    "`npm install -g @earendil-works/pi-coding-agent`, then run `pi` and /login. "
+                    "Shell-only workflows do not need it.", code="E_UNAVAILABLE")
+    try:
+        result = subprocess.run([pi_bin, "--list-models"], capture_output=True, text=True,
+                                timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError) as error:
+        return fail(f"pi --list-models failed: {error}", code="E_UNAVAILABLE")
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()[:400]
+        return fail(f"pi --list-models exited {result.returncode}: {detail} "
+                    "(run `pi` and /login first?)", code="E_UNAVAILABLE")
+    models: list[dict[str, str]] = []
+    for line in (result.stdout or "").splitlines():
+        columns = line.split()
+        if len(columns) < 2:
+            continue
+        if columns[0] == "provider" and columns[1] == "model":
+            continue  # the table header row
+        identifier = f"{columns[0]}/{columns[1]}"
+        models.append({"id": identifier, "provider": columns[0], "model": columns[1]})
+    # De-duplicate while preserving order; some providers list aliases.
+    seen: set[str] = set()
+    models = [item for item in models if not (item["id"] in seen or seen.add(item["id"]))]
+    payload: dict[str, Any] = {"schema": "pi-graph.models.v1", "ok": True, "models": models}
+    exit_code = 0
+    if args.check:
+        match = next((item for item in models if item["id"] == args.check), None)
+        if match:
+            payload["check"] = {"id": args.check, "known": True}
+        else:
+            near = difflib.get_close_matches(args.check, [item["id"] for item in models], n=1)
+            payload["check"] = {"id": args.check, "known": False,
+                                "suggestion": near[0] if near else None}
+            payload["ok"] = False
+            exit_code = 1
+    if args.json:
+        out(json.dumps(payload, separators=(",", ":")))
+    else:
+        if args.check:
+            check = payload["check"]
+            if check["known"]:
+                out(f"{args.check} is a known model id")
+            else:
+                out(f"error: '{args.check}' is not a known model id"
+                    + (f" — did you mean '{check['suggestion']}'?" if check.get("suggestion") else ""))
+                out("see: piw models")
+        else:
+            width = max((len(item["id"]) for item in models), default=5)
+            for item in models:
+                out(f"{item['id'].ljust(width)}")
+            if not models:
+                out("no models listed (run `pi` and /login first?)")
+    return exit_code
+
+
 def cmd_create(args) -> int:
     name = args.name.strip()
     if not name:
@@ -2079,6 +2186,40 @@ def cmd_optimize(args) -> int:
     bundle: OptimizationBundle | None = None
     command = args.optimize_command
     try:
+        if command == "scaffold":
+            workflow = need(args.workflow)
+            source = Path(workflow["path"]).resolve()
+            contract_out = (Path(args.contract_out).expanduser().resolve() if args.contract_out else
+                            source.parent / "optimization-contract.json")
+            if contract_out.exists():
+                raise OptimizationError(f"refusing to overwrite {contract_out}")
+            contract = build_contract(source, Path(args.inputs).expanduser(),
+                                      Path(args.holdout).expanduser(), contract_out)
+            result = {
+                "contract_path": str(contract_out),
+                "evaluator_source": str(contract_out.parent / "optimization-eval.py"),
+                "mechanisms": [item["mechanism"] for item in contract["boundaries"]["mutable"]],
+                "development_items": contract["development"]["count"],
+                "holdout_items": contract["holdout"]["count"],
+                "note": "Read and tune the contract: budgets, minimum_gain, promotion thresholds, "
+                        "and boundaries.mutable are conservative defaults.",
+            }
+            payload = {
+                "schema": "pi-graph.optimize-response.v1", "ok": True, "command": command,
+                "experiment_id": None, "state": None, "result": result, "counters": {},
+                "paths": {"contract": str(contract_out)},
+                "next": [
+                    f"piw optimize init {args.workflow} --contract {contract_out} --json",
+                    f"piw optimize baseline <experiment-dir> --json",
+                ],
+            }
+            if args.json:
+                _emit_optimize_json(payload)
+            else:
+                out(f"scaffold: wrote {contract_out}")
+                out(json.dumps(result, indent=2, sort_keys=True))
+                out(f"next: {payload['next'][0]}")
+            return 0
         if command == "init":
             workflow = need(args.workflow)
             source = Path(workflow["path"]).resolve()
@@ -2116,6 +2257,8 @@ def cmd_optimize(args) -> int:
         return exit_code
     except OptimizationBusy as caught:
         code, exit_code, error_message = "E_BUSY", 4, str(caught)
+    except ScaffoldError as caught:
+        code, exit_code, error_message = "E_CONTRACT", 2, str(caught)
     except OptimizationError as caught:
         error_message = str(caught)
         code = "E_DRIFT" if any(word in error_message for word in ("fingerprint", "integrity", "hash mismatch", "tamper")) else "E_CONTRACT"
@@ -2132,16 +2275,23 @@ def cmd_optimize(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = PiwArgumentParser(
         prog="piw",
         description="Drive deterministic workflows: list, inspect, validate, run, review.",
+        epilog="Workflow discovery scans, in order: the enclosing git project root, this "
+               "checkout's examples/ and templates/, directories registered in "
+               "PI_GRAPH_HOME/roots.json, and PI_GRAPH_ROOTS (os.pathsep-separated). Any "
+               "workflow positional also accepts a directory containing steps.yaml or a "
+               "steps.yaml path directly. Exit codes: 0 ok · 1 domain failure (run failed, "
+               "validation red, quality regression) · 2 usage/runtime error · 3 drift · "
+               "4 busy · 130 interrupted.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
     def add(name, help_text, workflow=True):
         node = sub.add_parser(name, help=help_text)
         if workflow:
-            node.add_argument("workflow", help="workflow id, or any unique substring of it")
+            node.add_argument("workflow", help="workflow id, unique substring, or a directory/steps.yaml path")
         node.add_argument("--json", action="store_true", help="machine-readable output")
         return node
 
@@ -2159,6 +2309,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     add("doctor", "verify the standalone product and optional integrations", workflow=False)
 
+    models = add("models", "list model ids that `pi --list-models` offers, or check one id", workflow=False)
+    models.add_argument("--check", metavar="ID",
+                        help="exit 0 if ID is an exact provider/model id, else suggest the closest")
+
     version = add("version", "show product, install, and source identity", workflow=False)
     version.add_argument("--compare-root", help="compare against another source or installed product root")
 
@@ -2174,6 +2328,13 @@ def build_parser() -> argparse.ArgumentParser:
     optimize_init.add_argument("workflow", help="workflow id, unique substring, or steps.yaml path")
     optimize_init.add_argument("--contract", required=True, help="frozen optimization contract JSON")
     optimize_init.add_argument("--out", help="new experiment directory")
+    optimize_scaffold = add_optimize("scaffold", "generate a valid starter optimization contract from a workflow", False)
+    optimize_scaffold.add_argument("workflow", help="workflow id, unique substring, or steps.yaml path")
+    optimize_scaffold.add_argument("--inputs", required=True, help="development corpus JSONL (kept inside the contract directory)")
+    optimize_scaffold.add_argument("--holdout", required=True,
+                                   help="private holdout JSONL; only its digest and count are recorded, never its path or bytes")
+    optimize_scaffold.add_argument("--contract-out",
+                                   help="contract destination (default: <workflow dir>/optimization-contract.json)")
     add_optimize("baseline", "evaluate the untouched baseline")
     optimize_candidate_parser = add_optimize("candidate", "evaluate one declared one-mechanism candidate")
     optimize_candidate_parser.add_argument("--file", required=True, help="candidate workflow YAML")
@@ -2242,7 +2403,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     batch = add("batch", "run the exact workflow across an isolated input corpus")
     batch.add_argument("--inputs", required=True, help="corpus: .jsonl, a directory, or a lines file")
-    batch.add_argument("--input-file", default="input.txt", help="immutable per-item filename")
+    batch.add_argument("--input-name", default="input.txt",
+                       help="filename each item's input is staged as inside its run (default: input.txt)")
     batch.add_argument("--parallel", type=int, choices=range(1, 33), default=4,
                        help="concurrent items, separate from workflow workers")
     batch.add_argument("--limit", type=int)
@@ -2275,7 +2437,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     evaluate = add("eval", "compare models over a corpus (judges held fixed)")
     evaluate.add_argument("--inputs", required=True)
-    evaluate.add_argument("--input-file", required=True)
+    evaluate.add_argument("--input-name", default="input.txt",
+                          help="filename each corpus item's content is staged as (default: input.txt)")
     evaluate.add_argument("--models", required=True, help="comma-separated model ids")
     evaluate.add_argument("--parallel", type=int)
     evaluate.add_argument("--limit", type=int)
@@ -2363,6 +2526,7 @@ COMMANDS = {
     "set": cmd_set, "detail": cmd_detail, "compare": cmd_compare, "batch": cmd_batch,
     "batch-status": cmd_batch_status, "batch-cancel": cmd_batch_cancel, "eval": cmd_eval,
     "reports": cmd_reports, "doctor": cmd_doctor, "version": cmd_version, "optimize": cmd_optimize,
+    "models": cmd_models,
     "create": cmd_create,
     "schedule": cmd_schedule, "automations": cmd_automations,
     "automation": cmd_automation,
@@ -2370,7 +2534,9 @@ COMMANDS = {
 
 
 def main(argv: list[str] | None = None) -> int:
+    global _JSON_MODE
     args = build_parser().parse_args(argv)
+    _JSON_MODE = bool(getattr(args, "json", False))
     try:
         return COMMANDS[args.command](args)
     except BrokenPipeError:

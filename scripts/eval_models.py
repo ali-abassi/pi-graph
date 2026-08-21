@@ -31,13 +31,18 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Model eval for a deterministic workflow")
     ap.add_argument("steps_file", type=Path)
     ap.add_argument("--inputs", type=Path, required=True)
-    ap.add_argument("--input-file", required=True)
+    # --input-file is kept as a deprecated alias: it names the FILENAME each
+    # item's content is staged under, never a path read from disk.
+    ap.add_argument("--input-name", "--input-file", dest="input_name", default="input.txt")
     ap.add_argument("--models", required=True, help="comma-separated model ids")
     ap.add_argument("--parallel", type=int, default=2)
     ap.add_argument("--limit", type=int)
     ap.add_argument("--out", type=Path)
     ap.add_argument("--json", action="store_true", help="emit one machine-readable receipt")
     args, extra = ap.parse_known_args()
+    if "--input-file" in sys.argv[1:]:
+        print("warning: --input-file is deprecated and names the staged FILENAME, "
+              "not a path; use --input-name", file=sys.stderr)
     extra = [*extra, "--no-cache"]  # paired comparison: no cross-run reuse
 
     models = [m.strip() for m in args.models.split(",") if m.strip()]
@@ -59,7 +64,7 @@ def main() -> int:
             mdir = eval_dir / model.replace("/", "_")
             for item in items:
                 fut = pool.submit(run_item, args.steps_file.resolve(), item, mdir,
-                                  args.input_file, extra, model)
+                                  args.input_name, extra, model)
                 futs[fut] = (model, item["id"])
         for fut in cf.as_completed(futs):
             model, iid = futs[fut]
@@ -99,12 +104,16 @@ def main() -> int:
                 "cost": sum(row["cost"] for row in rows),
                 "wall_seconds": sum(row["wall_s"] for row in rows),
             })
-        print(json.dumps({"schema": "pi-graph.eval.v1", "ok": all(row["passed"] for row in results),
-                          "eval_dir": str(eval_dir), "results": str(eval_dir / "eval.json"),
+        # ok mirrors the exit code: an eval that completed but had failing items
+        # is a successful measurement with a non-zero exit, matching `run` and
+        # `compare` conventions, so `piw eval ... && next` cannot proceed on red.
+        ok = all(row["passed"] for row in results)
+        print(json.dumps({"schema": "pi-graph.eval.v1", "ok": ok,
+                          "eval_dir": str(eval_dir), "results_path": str(eval_dir / "eval.json"),
                           "report": str(report_path), "models": summaries}, separators=(",", ":")))
     else:
         print("\n" + report)
-    return 0
+    return 0 if all(row["passed"] for row in results) else 1
 
 
 if __name__ == "__main__":
