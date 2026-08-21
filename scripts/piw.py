@@ -1903,13 +1903,20 @@ def cmd_doctor(args) -> int:
             pass
     check("pi-skill", pi_skill_ok, pi_skill_detail)
 
-    loops_ok = daemon_up()
-    # Only mention the scheduler when its adapter actually exists; otherwise this
-    # line names a component a new user cannot obtain or look up.
-    if shutil.which("loops") or loops_ok:
-        check("scheduler", loops_ok,
-              f"{DAEMON} · {'connected' if loops_ok else 'adapter present but not responding'}",
-              required=False)
+    loops_bin = shutil.which("loops")
+    # Scheduling is implemented by the CLI adapter, not the optional run daemon.
+    if loops_bin:
+        loops_ok = False
+        loops_detail = f"{loops_bin} · adapter did not return a list"
+        try:
+            result = subprocess.run([loops_bin, "list"], capture_output=True, text=True,
+                                    timeout=10, check=False)
+            loops_ok = result.returncode == 0 and isinstance(_strict_json_loads(result.stdout), list)
+            if loops_ok:
+                loops_detail = f"{loops_bin} · CLI reachable"
+        except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+            pass
+        check("scheduler", loops_ok, loops_detail, required=False)
     codex = Path.home() / ".agents" / "skills" / "pi-graph" / "SKILL.md"
     claude = Path.home() / ".claude" / "skills" / "pi-graph" / "SKILL.md"
     check("codex-skill", codex.is_file(), str(codex), required=False)

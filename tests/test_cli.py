@@ -41,6 +41,9 @@ class ProductCliTests(unittest.TestCase):
                 encoding="utf-8",
             )
             fake_pi.chmod(0o755)
+            fake_loops = fake_bin / "loops"
+            fake_loops.write_text("#!/bin/sh\nprintf '%s\\n' '[]'\n", encoding="utf-8")
+            fake_loops.chmod(0o755)
             result = subprocess.run(
                 [sys.executable, str(CLI), "doctor", "--json"],
                 capture_output=True,
@@ -57,6 +60,7 @@ class ProductCliTests(unittest.TestCase):
             checks = {item["name"]: item for item in json.loads(result.stdout)["checks"]}
             self.assertTrue(checks["pi-package"]["ok"])
             self.assertTrue(checks["pi-skill"]["ok"])
+            self.assertTrue(checks["scheduler"]["ok"])
 
     def test_set_thinking_off_remains_a_string_and_validates(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

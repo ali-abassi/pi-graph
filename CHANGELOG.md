@@ -11,6 +11,7 @@ All notable changes to pi graph are documented here.
 - Optimize responses now include executable `next_actions` argv arrays with current parent IDs and required placeholders while retaining compact `next` IDs.
 - `piw eval` reports paired item regressions/improvements, Wilson pass intervals, median/p95 cost and latency, small-corpus warnings, and an explicit recommendation that may remain inconclusive.
 - `path`, every `show` mode, `schedule`, and `automation` now return bounded parseable objects under `--json`; external scheduler text is wrapped rather than passed through as fake JSON.
+- Doctor verifies the scheduler through the same `loops` CLI adapter used by `schedule`, rather than an unrelated daemon endpoint.
 - `piw optimize scaffold` generates a schema-valid starter optimization contract from a workflow: one mutable mechanism per model step, a frozen default evaluator/parser beside the contract, digest-only holdout metadata, and conservative budgets. `piw optimize init` accepts it unchanged.
 - Every command now emits a structured `{schema: pi-graph.error.v1}` error document on stdout under `--json`; usage errors included. Typo'd subcommands suggest the nearest valid name.
 - New `piw models` lists valid model ids from `pi --list-models`; `--check <id>` pre-flights an id (with a near-match suggestion) before any paid run.
