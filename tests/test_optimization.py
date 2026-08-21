@@ -450,6 +450,79 @@ class OptimizationLifecycleTests(unittest.TestCase):
                 "steps": [{"id": "answer", "cmd": 'printf "%s" "$INPUT" > "$OUT"'}],
             }, sort_keys=False))
 
+    def test_promote_without_a_dev_winner_retains_baseline_and_writes_receipt(self) -> None:
+        # Regression: the terminal event used status "retained_incumbent" before
+        # the event schema allowed it, so ledger validation failed and no
+        # receipt was ever written on the no-winner path.
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            workflow = root / "steps.yaml"
+            workflow.write_text(yaml.safe_dump({
+                "version": 1, "workflow": "retained-fixture",
+                "steps": [{"id": "answer", "cmd": 'printf "%s" "$INPUT" > "$OUT"'}],
+            }, sort_keys=False), encoding="utf-8")
+            dev = root / "dev.jsonl"
+            dev.write_text('{"content":"one"}\n{"content":"two"}\n', encoding="utf-8")
+            holdout = root / "holdout.jsonl"
+            holdout.write_text('{"content":"hidden"}\n', encoding="utf-8")
+            evaluator = root / "evaluator.py"
+            evaluator.write_text("print(0.5)\n", encoding="utf-8")
+            parser = root / "parser.py"
+            parser.write_text(
+                "import json,sys\n"
+                "score=float(sys.stdin.read().strip())\n"
+                "print(json.dumps({'schema':'pi-graph.optimization-metrics.v1','primary':score,"
+                "'coverage':{'expected':2,'scored':2},'gates':{},"
+                "'usage':{'tokens':0,'cost_usd':0,'wall_seconds':0},"
+                "'uncertainty':{'low':score,'high':score}}))\n", encoding="utf-8")
+            contract = {
+                "schema": "pi-graph.optimization-contract.v1", "evaluation_version": "retained-v1",
+                "route": "candidate_loop",
+                "objective": {"description": "improve fixture", "unit": "workflow", "primary_metric": "score",
+                              "direction": "maximize", "minimum_gain": 0.1,
+                              "definition_of_done": "measured gain", "non_goals": []},
+                "boundaries": {"mutable": [{"mechanism": "command", "pointer": "/steps/0/cmd"}],
+                    "protected_files": [], "authorized_effects": [], "rollback": "exact bytes",
+                    "network": "denied"},
+                "development": {"path": "dev.jsonl", "sha256": digest(dev), "format": "jsonl", "count": 2},
+                "holdout": {"sha256": digest(holdout), "format": "jsonl", "count": 1},
+                "evaluation": {
+                    "evaluator": {"argv": [sys.executable, "evaluator.py"],
+                        "sources": [{"path": "evaluator.py", "sha256": digest(evaluator)}], "timeout_seconds": 10},
+                    "parser": {"argv": [sys.executable, "parser.py"],
+                        "sources": [{"path": "parser.py", "sha256": digest(parser)}], "timeout_seconds": 10},
+                    "hard_gates": [], "repeats": 1, "seeds": [1],
+                    "uncertainty": {"method": "none", "minimum_repeats": 1}, "tie_breakers": ["lower_cost"]},
+                "execution": {"provider": "fixture", "model": "fixture/model", "thinking": "off", "tools": [],
+                    "environment": {}, "dependency_files": [],
+                    "batch": {"parallel": 1, "require_all": True, "item_timeout_seconds": 10}, "cache": False},
+                "budgets": {"max_candidates": 2, "max_wall_seconds": 120, "max_tokens": 1000,
+                    "max_cost_usd": 1, "max_failures": 1, "max_consecutive_non_keeps": 2,
+                    "per_candidate": {"max_wall_seconds": 30, "max_tokens": 500, "max_cost_usd": 0.5, "max_failures": 0},
+                    "promotion": {"max_wall_seconds": 30, "max_tokens": 500, "max_cost_usd": 0.5}},
+                "promotion": {"minimum_holdout_score": 0.7, "maximum_drop_from_selected_dev": 0.1,
+                              "require_all_gates": True},
+            }
+            contract_path = root / "contract.json"
+            contract_path.write_text(json.dumps(contract), encoding="utf-8")
+            experiment = root / "experiment"
+            result, payload = self.run_cli("optimize", "init", str(workflow),
+                                           "--contract", str(contract_path), "--out", str(experiment))
+            self.assertEqual(result.returncode, 0, payload)
+            result, payload = self.run_cli("optimize", "baseline", str(experiment))
+            self.assertEqual(result.returncode, 0, payload)
+            result, payload = self.run_cli("optimize", "stop", str(experiment), "--reason", "nothing to search")
+            self.assertEqual(result.returncode, 0, payload)
+            result, payload = self.run_cli("optimize", "promote", str(experiment))
+            self.assertEqual(result.returncode, 1, payload)
+            self.assertEqual(payload["state"], "retained_incumbent")
+            self.assertEqual(payload["next"], ["receipt"])
+            self.assertEqual((experiment / "private" / "holdout.jsonl").exists(), False)
+            result, payload = self.run_cli("optimize", "receipt", str(experiment))
+            self.assertEqual(result.returncode, 1, payload)  # non-promoted outcomes exit 1
+            self.assertEqual(payload["result"]["outcome"], "retained_baseline")
+            self.assertEqual(payload["result"]["selected"]["id"], "baseline")
+
 
 if __name__ == "__main__":
     unittest.main()

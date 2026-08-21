@@ -2166,7 +2166,7 @@ def _optimize_next(status: str | None) -> list[str]:
         "searching": ["candidate", "stop"], "plateau": ["promote"],
         "budget_exhausted": ["promote"], "stopped_by_user": ["promote"],
         "promotion_running": ["resume"], "promoted": ["receipt"],
-        "promotion_reverted": ["receipt"],
+        "promotion_reverted": ["receipt"], "retained_incumbent": ["receipt"],
     }.get(status, [])
 
 

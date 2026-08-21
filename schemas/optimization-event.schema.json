@@ -169,7 +169,7 @@
     "terminal": {
       "type": "object", "additionalProperties": false,
       "required": ["status", "reason", "incumbent_id", "artifact_sha256"],
-      "properties": {"status": {"enum": ["plateau", "target_achieved", "budget_exhausted", "blocked_by_infra", "harden_eval", "authority_required", "stopped_by_user", "failed"]}, "reason": {"type": "string", "minLength": 1, "maxLength": 4000}, "incumbent_id": {"type": "string", "minLength": 1, "maxLength": 200}, "artifact_sha256": {"$ref": "#/$defs/sha256"}}
+      "properties": {"status": {"enum": ["plateau", "target_achieved", "budget_exhausted", "blocked_by_infra", "harden_eval", "authority_required", "stopped_by_user", "retained_incumbent", "failed"]}, "reason": {"type": "string", "minLength": 1, "maxLength": 4000}, "incumbent_id": {"type": "string", "minLength": 1, "maxLength": 200}, "artifact_sha256": {"$ref": "#/$defs/sha256"}}
     },
     "holdoutAccess": {
       "type": "object", "additionalProperties": false,
