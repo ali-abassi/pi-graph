@@ -24,7 +24,7 @@ For ordinary work, follow this loop and do not skip inspection:
 ```bash
 piw actions --json
 piw create work --action ACTION
-piw validate work/steps.yaml --json
+piw validate work/steps.yaml --strict --json
 piw run work/steps.yaml --input-file input.txt --json
 # After an interrupted durable run, resume only its unfinished boundary.
 piw resume work/steps.yaml RUN_ID --json
@@ -48,7 +48,9 @@ piw set work/steps.yaml STEP_ID --judge-prompt-file qa.txt \
 
 Promotion rules:
 
-- Validation must pass before a paid run.
+- Strict validation must pass before a paid run intended to provide a reliable
+  operational contract; normal validation preserves compatibility and reports
+  weak gates as advice.
 - Inspect every failed, paid, judged, or effectful node; never infer success
   from the final sentence or process exit alone.
 - Change one prompt/model/reasoning/judge variable at a time. Keep gates and

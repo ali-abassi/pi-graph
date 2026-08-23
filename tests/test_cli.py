@@ -19,6 +19,63 @@ CLI = ROOT / "scripts" / "piw.py"
 
 
 class ProductCliTests(unittest.TestCase):
+    def test_strict_validation_rejects_weak_gates_without_breaking_legacy_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            steps = Path(raw) / "steps.yaml"
+            steps.write_text(yaml.safe_dump({
+                "version": 1,
+                "workflow": "weak-gates",
+                "steps": [
+                    {"id": "draft", "prompt": "Draft a release note", "gate": 'test -s "$OUT"'},
+                    {"id": "effect", "needs": ["draft"], "prompt": "Change the repository",
+                     "agent": True, "gate": 'grep -q done "$OUT"'},
+                ],
+            }, sort_keys=False), encoding="utf-8")
+
+            normal = subprocess.run(
+                [sys.executable, str(CLI), "validate", str(steps), "--json"],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            self.assertEqual(normal.returncode, 0, normal.stdout + normal.stderr)
+            normal_payload = json.loads(normal.stdout)
+            self.assertTrue(normal_payload["holds"])
+            self.assertEqual(len(normal_payload["advice"]), 2)
+
+            strict = subprocess.run(
+                [sys.executable, str(CLI), "validate", str(steps), "--strict", "--json"],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            self.assertEqual(strict.returncode, 1, strict.stdout + strict.stderr)
+            strict_payload = json.loads(strict.stdout)
+            self.assertFalse(strict_payload["holds"])
+            self.assertTrue(strict_payload["strict"])
+            findings = next(
+                clause for clause in strict_payload["clauses"]
+                if clause["clause"] == "gates substantiate their acceptance claims"
+            )["open"]
+            self.assertEqual({item["step"] for item in findings}, {"draft", "effect"})
+            self.assertIn("--strict", findings[0]["fix"])
+
+    def test_strict_validation_accepts_effect_and_contract_gates(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            steps = Path(raw) / "steps.yaml"
+            steps.write_text(yaml.safe_dump({
+                "version": 1,
+                "workflow": "strong-gates",
+                "steps": [
+                    {"id": "classify", "prompt": "Return JSON", "schema": {"kind": "string"},
+                     "gate": "python3 -c \"import json,os; assert json.load(open(os.environ['OUT']))['kind']\""},
+                    {"id": "effect", "needs": ["classify"], "prompt": "Change the repository",
+                     "agent": True, "gate": 'git diff --check && test -n "$(git status --porcelain)"'},
+                ],
+            }, sort_keys=False), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(CLI), "validate", str(steps), "--strict", "--json"],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(json.loads(result.stdout)["holds"])
+
     def test_doctor_accepts_pi_normalized_home_package_path(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             home = Path(raw)
@@ -410,6 +467,26 @@ class ProductCliTests(unittest.TestCase):
                     f"{action_id}: {validated_action.stdout}{validated_action.stderr}",
                 )
                 created_paths[action_id] = target_path
+
+            repo_change = yaml.safe_load(
+                (created_paths["repo-change"] / "steps.yaml").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                [step["id"] for step in repo_change["steps"]],
+                [
+                    "repo-change-plan", "repo-change-implement", "repo-change-test",
+                    "repo-change-review", "repo-change-repair", "repo-change-verify",
+                ],
+            )
+            strict_repo_change = subprocess.run(
+                [sys.executable, str(CLI), "validate",
+                 str(created_paths["repo-change"] / "steps.yaml"), "--strict", "--json"],
+                capture_output=True, text=True, env=env, timeout=30, check=False,
+            )
+            self.assertEqual(
+                strict_repo_change.returncode, 0,
+                strict_repo_change.stdout + strict_repo_change.stderr,
+            )
 
             target = created_paths["parallel-review"]
             spec = yaml.safe_load((target / "steps.yaml").read_text(encoding="utf-8"))

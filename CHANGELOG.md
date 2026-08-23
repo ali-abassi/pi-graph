@@ -4,6 +4,21 @@ All notable changes to pi graph are documented here.
 
 ## Unreleased
 
+### Reliable repository changes
+
+- `piw validate --strict` promotes narrowly detected weak gates to errors:
+  unconditional gates, output-existence-only gates, and agent gates that inspect
+  only their transcript. Normal validation reports the same findings as advice
+  for backward compatibility.
+- The `repo-change` action now enforces six explicit stages: typed planning,
+  implementation, independent testing, independent review, bounded repair, and
+  a final machine-readable Git verification receipt.
+- A token-free end-to-end journey proves all six stages execute, pass their
+  gates, and persist inspectable durable-run evidence.
+- The first-run documentation now leads with the reliable repository-change
+  experience and describes deterministic control without promising deterministic
+  model output.
+
 ### Agent ergonomics
 
 - Full model/tool/agent/judge/QA and optimization-promotion journeys now run token-free in CI through one deterministic fake-Pi protocol harness; malformed, unsettled, provider-error, extension-error, retry-error, and blank streams are classified and evidenced.

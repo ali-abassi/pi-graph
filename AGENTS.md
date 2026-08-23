@@ -16,8 +16,8 @@ the process. Skip it for a one-step task that ordinary tools can finish safely.
    mechanical gates, optional semantic QA, external effects, volume, and budget.
 2. **Reuse first:** inspect `piw actions --json`; expand an existing action with
    `piw create --action` or `piw add` before writing new nodes.
-3. **Validate free:** run `piw validate <workflow> --json`. Do not spend tokens
-   while validation is red.
+3. **Validate free:** run `piw validate <workflow> --strict --json` for reliable
+   operational contracts. Do not spend tokens while validation is red.
 4. **Canary:** run one representative input. Preserve the returned run id.
 5. **Inspect:** use `piw detail <workflow> <run>` for the whole trace, then
    `--step <id> --io` for every paid, judged, failed, or effectful node.

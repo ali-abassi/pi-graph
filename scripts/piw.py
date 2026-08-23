@@ -546,6 +546,49 @@ def _looks_like_scaffolding(body: str) -> bool:
     return bool(_SCAFFOLD_MARKER.search(body))
 
 
+_UNCONDITIONAL_GATES = {":", "true", "exit 0", "/bin/true"}
+_OUT_EXISTENCE_GATE = re.compile(
+    r"^(?:test|\[)\s+(?:-s|-n)\s+(?:\"?\$OUT\"?|\"?\$\(cat\s+\"?\$OUT\"?\)\"?)\s*(?:\])?$"
+)
+
+
+def _gate_quality_finding(node: dict[str, Any]) -> tuple[str, str] | None:
+    """Return why a gate cannot substantiate its node's success claim.
+
+    This is deliberately narrow. A shell command's semantics cannot be proven
+    statically, so strict validation rejects only gates that are mechanically
+    unconditional or that establish no more than a non-empty transcript.
+    """
+    gate = str(node.get("gate") or "").strip()
+    if not gate:
+        if node.get("kind") in {"llm", "tool", "agent"}:
+            return (
+                "model-backed step has no mechanical acceptance gate",
+                f"add a gate: to `{node['id']}` that checks its declared artifact or effect",
+            )
+        return None
+    compact = re.sub(r"\s+", " ", gate).strip().rstrip(";")
+    if compact in _UNCONDITIONAL_GATES:
+        return (
+            f"gate `{gate}` always succeeds and proves no acceptance condition",
+            f"replace the gate on `{node['id']}` with an observable artifact or effect check",
+        )
+    if _OUT_EXISTENCE_GATE.fullmatch(compact):
+        target = "agent transcript" if node.get("kind") == "agent" else "output"
+        return (
+            f"gate checks only that the {target} is non-empty; it does not verify the step's contract",
+            f"replace the gate on `{node['id']}` with a structural, behavioral, semantic, or effect-confirming check",
+        )
+    if node.get("kind") == "agent" and "$OUT" in gate and not any(
+        marker in gate for marker in ("git ", "$RUN", "$INPUT", "./", "npm ", "pnpm ", "yarn ", "pytest", "unittest")
+    ):
+        return (
+            "agent gate inspects only the transcript rather than the repository effect",
+            f"make the gate on `{node['id']}` inspect changed files, tests, or another external effect",
+        )
+    return None
+
+
 def cmd_validate(args) -> int:
     """Answer "is this workflow sound?" as clauses an agent can branch on.
 
@@ -555,7 +598,7 @@ def cmd_validate(args) -> int:
     this tells it what to run next.
     """
     workflow = need(args.workflow)
-    recheck = f"piw validate {workflow['id']}"
+    recheck = f"piw validate {workflow['id']}" + (" --strict" if args.strict else "")
 
     try:
         graph = pygraph.parse_steps(Path(workflow["path"]))
@@ -655,6 +698,18 @@ def cmd_validate(args) -> int:
         for n in real if n["kind"] == "agent" and not n["gate"]
     ])
 
+    gate_quality = []
+    for node in real:
+        quality = _gate_quality_finding(node)
+        if quality:
+            message, fix = quality
+            gate_quality.append(finding(node["id"], message, fix))
+    clause(
+        "gates substantiate their acceptance claims",
+        gate_quality,
+        severity="error" if args.strict else "advice",
+    )
+
     # A guarded step reads its source's JSON. If nothing pins the SHAPE of that
     # JSON, a model emitting {"type": "bug"} instead of {"kind": "bug"} makes the
     # condition quietly evaluate false: the branch never fires and the run still
@@ -713,8 +768,14 @@ def cmd_validate(args) -> int:
     # advice, else run it.
     if errors:
         next_action = errors[0]["open"][0]["fix"]
-    elif advice:
-        next_action = advice[0]["open"][0]["fix"]
+    elif actionable_advice := [
+        entry for entry in advice
+        if entry["clause"] != "gates substantiate their acceptance claims"
+    ]:
+        # Gate-quality advice is intentionally non-blocking in compatibility
+        # mode. Keep it visible, but do not replace the runnable next command;
+        # --strict promotes the same finding to an error and fix command.
+        next_action = actionable_advice[0]["open"][0]["fix"]
     else:
         # A workflow declaring `input.required` cannot run without one, so the
         # bare `piw run <id>` hint was guaranteed to fail on most workflows —
@@ -727,6 +788,7 @@ def cmd_validate(args) -> int:
     verdict = {
         "id": workflow["id"],
         "holds": holds,
+        "strict": bool(args.strict),
         "steps": len(real),
         "clauses": clauses,
         "next": next_action,
@@ -2619,7 +2681,11 @@ def build_parser() -> argparse.ArgumentParser:
     graph = add("graph", "print the DAG")
     graph.add_argument("-v", "--verbose", action="store_true", help="include per-step models")
 
-    add("validate", "check the yaml without running it")
+    validate = add("validate", "check the yaml without running it")
+    validate.add_argument(
+        "--strict", action="store_true",
+        help="fail on weak gates that normal validation reports as advice",
+    )
 
     run = add("run", "run a workflow and stream step results")
     run.add_argument("--node", action="append", help="force this step fresh (repeatable); upstream comes from cache")

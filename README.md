@@ -10,8 +10,10 @@
 
 # pi graph
 
-**pi graph gives coding agents a reliable way to create deterministic
-workflows that execute every required step and prove what happened.**
+**Deterministic control and evidence for nondeterministic agents.**
+
+Pi Graph gives coding agents a reliable way to create workflows that execute
+every required step and prove what happened.
 
 Deterministic YAML workflow graphs for coding agents. Your agent authors
 `steps.yaml`; from then on code owns order, gates, retries, and budget. The
@@ -36,6 +38,31 @@ macOS/Linux · Python 3.10+ · Pi 0.80.10+ for model nodes ·
 `piw` installs from this clone, not npm · `./install.sh --uninstall` reverses it.
 
 ## The loop
+
+### First five minutes: a reliable repository change
+
+Start inside a Git repository with a scoped request in `issue.md`:
+
+```bash
+piw create reliable-change --action repo-change --dir .
+piw validate steps.yaml --strict
+piw run steps.yaml --input-file issue.md --json
+piw detail steps.yaml RUN_ID --step repo-change-review --io
+```
+
+This materializes six ordinary, inspectable nodes: **plan → implement → test →
+independent review → bounded repair → final verification**. Typed receipts
+prove what each model-backed stage claimed; gates separately inspect the JSON,
+Git diff, test evidence, and final repository effect. A model cannot mark its
+own stage complete or skip the independent review.
+
+`piw validate --strict` fails before spending when a gate is unconditional,
+checks only that output exists, or checks an agent's transcript instead of its
+effect. Without `--strict`, the same findings remain advisory for compatibility.
+Strict validation improves the acceptance contract; it cannot prove arbitrary
+shell commands are meaningful, so review generated workflows before running.
+
+### Inspect and improve
 
 ```bash
 piw create review --action parallel-review              # scaffold a valid graph

@@ -67,6 +67,59 @@ class FakePiJourneyTests(unittest.TestCase):
             return []
         return [json.loads(line) for line in self.argv_log.read_text(encoding="utf-8").splitlines()]
 
+    def test_reliable_repo_change_action_runs_all_six_gated_stages(self) -> None:
+        repository = self.root / "target-repository"
+        result, created = self.run_cli(
+            "create", "reliable-change", "--dir", str(repository),
+            "--action", "repo-change",
+        )
+        self.assertEqual(result.returncode, 0, created)
+        workflow = repository / "steps.yaml"
+        request = repository / "request.md"
+        request.write_text("Add a durable marker file and verify it.\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+        subprocess.run(["git", "config", "user.email", "fixture@example.test"], cwd=repository, check=True)
+        subprocess.run(["git", "config", "user.name", "Fixture"], cwd=repository, check=True)
+        subprocess.run(["git", "add", "steps.yaml", "request.md"], cwd=repository, check=True)
+        subprocess.run(["git", "commit", "-qm", "fixture baseline"], cwd=repository, check=True)
+
+        strict, strict_payload = self.run_cli("validate", str(workflow), "--strict")
+        self.assertEqual(strict.returncode, 0, strict_payload)
+        marker = repository / "durable-marker.txt"
+        rules = [
+            {"contains": ["Review whether the completed artifacts satisfy the `repo-change` action contract"],
+             "text": '{"verdict":"pass","issues":[]}'},
+            {"contains": ["Plan the smallest safe repository change"],
+             "text": '{"summary":"add marker","files":["durable-marker.txt"],"checks":["test -s durable-marker.txt"],"risks":[]}'},
+            {"contains": ["Implement the scoped request"],
+             "write": {"path": str(marker), "text": "durable\n"},
+             "text": '{"changed_files":["durable-marker.txt"],"checks":["test -s durable-marker.txt: pass"],"summary":"added marker"}'},
+            {"contains": ["Independently test the current repository change"],
+             "text": '{"checks":["test -s durable-marker.txt"],"results":["PASS: marker exists"],"verdict":"pass"}'},
+            {"contains": ["Independently review the repository diff"],
+             "text": '{"verdict":"pass","issues":[],"evidence":["durable-marker.txt is present in git status"]}'},
+            {"contains": ["Apply only repairs required"],
+             "text": '{"addressed":["no-repair-needed"],"checks":["git diff --check: pass"],"summary":"review passed"}'},
+        ]
+        run, payload = self.run_cli(
+            "run", str(workflow), "--input-file", str(request), rules=rules,
+        )
+        self.assertEqual(run.returncode, 0, payload)
+        run_dir = Path(payload["run_dir"])
+        state = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["status"], "completed")
+        self.assertEqual(
+            list(state["steps"]),
+            [
+                "repo-change-plan", "repo-change-implement", "repo-change-test",
+                "repo-change-review", "repo-change-repair", "repo-change-verify",
+            ],
+        )
+        self.assertTrue(all(step["status"] == "passed" for step in state["steps"].values()))
+        final = json.loads((run_dir / "repo-change-verify.md").read_text(encoding="utf-8"))
+        self.assertEqual(final["verdict"], "pass")
+        self.assertTrue(any("durable-marker.txt" in item for item in final["changed"]))
+
     def test_model_tool_agent_judge_and_qa_journey(self) -> None:
         workflow = self.write_workflow({
             "version": 1, "workflow": "protocol-journey", "model": "fixture/luna",

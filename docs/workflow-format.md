@@ -38,6 +38,20 @@ piw detail steps.yaml RUN_ID --step draft --io
 piw compare steps.yaml BASELINE_RUN CANDIDATE_RUN
 ```
 
+For workflows intended to enforce a reliable operational contract, use strict
+gate-quality validation before the first paid call:
+
+```bash
+piw validate steps.yaml --strict
+```
+
+Normal validation reports mechanically unconditional, output-existence-only,
+and transcript-only agent gates as advice. `--strict` promotes those findings
+to errors. Strong gates substantiate one of four things: artifact structure,
+observable behavior, a bounded semantic contract, or an external effect. Static
+validation is intentionally conservative and does not claim to understand every
+shell command.
+
 ## Execution runtimes
 
 | Kind | How to declare it | Model | Use it for |

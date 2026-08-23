@@ -1,11 +1,11 @@
 version: 1
 id: repo-change
-title: Plan, implement, and verify a repository change
-description: Create a typed plan, let one Pi agent edit the repo, then mechanically verify the resulting diff.
+title: Reliably plan, implement, test, review, repair, and verify a repository change
+description: Execute a repository change through six explicit, gated stages with an independent review and bounded repair.
 category: coding
 inputs: A scoped coding request from immutable input or --needs; run with cwd at the target repository.
-outputs: Typed plan, implementation receipt, and a clean non-empty Git diff receipt.
-failure: Fails when planning is malformed, the agent produces no diff, or git diff --check fails.
+outputs: Typed plan, implementation and test receipts, independent review, repair receipt, and a clean non-empty Git diff receipt.
+failure: Fails when any stage lacks evidence, the repository has no resulting change, or the final diff is malformed.
 effect: repository-write
 retry_safe: conditional
 idempotency: verify-diff-before-retry
@@ -33,9 +33,10 @@ steps:
     needs: [plan]
     agent: true
     prompt: |
-      Implement the scoped request in the current repository. Preserve unrelated work, inspect the
-      real code path first, and run the narrow checks from the plan. Finish with a concise receipt
-      naming changed files and checks; do not claim success without their actual output.
+      Implement the scoped request in the current repository. Preserve unrelated work and inspect
+      the real code path first. Return JSON only:
+      {"changed_files":["path"],"checks":["command: observed result"],"summary":"what changed"}
+      Do not claim a check without actually running it.
 
       <request>
       {{source}}
@@ -43,13 +44,92 @@ steps:
       <plan>
       {step.plan}
       </plan>
-    gate: git diff --check && test -n "$(git status --porcelain)"
+    schema:
+      changed_files: array
+      checks: array
+      summary: string
+    gate: git diff --check && test -n "$(git status --porcelain --untracked-files=all | grep -Ev '^.. (runs|cache)/')" && python3 -c "import json,os; x=json.load(open(os.environ['OUT'])); assert x['changed_files'] and x['checks'] and x['summary'].strip()"
     retries: 1
     retry_on: [model_error, gate_failed]
     retry_delay_seconds: 2
     retry_backoff: exponential
     retry_max_delay_seconds: 8
-  - id: verify
+  - id: test
     needs: [implement]
-    cmd: git diff --check && git status --porcelain
-    gate: test -s "$OUT"
+    agent: true
+    prompt: |
+      Independently test the current repository change against the planned checks. Inspect the
+      actual diff and run the narrowest relevant automated checks. Do not edit files. Return JSON only:
+      {"checks":["exact command"],"results":["PASS: observed result"],"verdict":"pass"}
+      Use verdict "fail" if any required check fails.
+
+      <plan>
+      {step.plan}
+      </plan>
+      <implementation>
+      {step.implement}
+      </implementation>
+    schema:
+      checks: array
+      results: array
+      verdict:
+        type: string
+        enum: [pass]
+    gate: git diff --check && python3 -c "import json,os; x=json.load(open(os.environ['OUT'])); assert x['verdict']=='pass' and x['checks'] and len(x['checks'])==len(x['results']) and all(r.startswith('PASS:') for r in x['results'])"
+    retries: 1
+    retry_on: [model_error, gate_failed, schema_failed]
+  - id: review
+    needs: [test]
+    agent: true
+    prompt: |
+      Independently review the repository diff against the request and plan. Inspect changed code
+      and test evidence. Do not edit files. Return JSON only:
+      {"verdict":"pass"|"repair","issues":["specific defect"],"evidence":["file, diff, or test observation"]}
+      Choose repair when any correctness, regression, scope, or missing-test issue remains.
+
+      <request>
+      {{source}}
+      </request>
+      <plan>
+      {step.plan}
+      </plan>
+      <test-receipt>
+      {step.test}
+      </test-receipt>
+    schema:
+      verdict:
+        type: string
+        enum: [pass, repair]
+      issues: array
+      evidence: array
+    gate: git diff --check && python3 -c "import json,os; x=json.load(open(os.environ['OUT'])); assert x['verdict'] in ('pass','repair') and x['evidence']; assert x['issues'] if x['verdict']=='repair' else not x['issues']"
+    retries: 1
+    retry_on: [model_error, gate_failed, schema_failed]
+  - id: repair
+    needs: [review]
+    agent: true
+    prompt: |
+      Apply only repairs required by the independent review. If the verdict passed, make no new
+      edits and preserve the accepted implementation. Run every check affected by a repair. Return JSON only:
+      {"addressed":["issue or no-repair-needed"],"checks":["command: observed result"],"summary":"repair outcome"}
+
+      <review>
+      {step.review}
+      </review>
+    schema:
+      addressed: array
+      checks: array
+      summary: string
+    gate: git diff --check && test -n "$(git status --porcelain --untracked-files=all | grep -Ev '^.. (runs|cache)/')" && python3 -c "import json,os; x=json.load(open(os.environ['OUT'])); assert x['addressed'] and x['checks'] and x['summary'].strip()"
+    retries: 1
+    retry_on: [model_error, gate_failed, schema_failed]
+  - id: verify
+    needs: [repair]
+    cmd: git diff --check && test -n "$(git status --porcelain --untracked-files=all | grep -Ev '^.. (runs|cache)/')" && python3 -c "import json,subprocess; lines=subprocess.check_output(['git','status','--porcelain','--untracked-files=all'],text=True).splitlines(); files=[x for x in lines if x[3:].split('/',1)[0] not in ('runs','cache')]; print(json.dumps({'verdict':'pass','changed':files,'check':'git diff --check'}))"
+    schema:
+      verdict:
+        type: string
+        enum: [pass]
+      changed: array
+      check: string
+    gate: python3 -c "import json,os; x=json.load(open(os.environ['OUT'])); assert x['verdict']=='pass' and x['changed'] and x['check']=='git diff --check'"
