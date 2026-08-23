@@ -126,6 +126,10 @@ class PiwArgumentParser(argparse.ArgumentParser):
             if match:
                 bad, raw_choices = match.group(1), match.group(2)
                 choices = re.findall(r"'([^']+)'", raw_choices)
+                if not choices:
+                    # Python 3.12 renders argparse choices without quotes;
+                    # newer interpreters quote them. Accept both stable forms.
+                    choices = [item.strip(" '\"") for item in raw_choices.split(",") if item.strip()]
                 near = difflib.get_close_matches(bad, choices, n=1)
                 if near:
                     message = f"unknown command '{bad}' — did you mean '{near[0]}'?"

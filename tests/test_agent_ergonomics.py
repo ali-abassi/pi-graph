@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import json
+import io
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "piw.py"
 SCHEMA = ROOT / "schemas" / "optimization-contract.schema.json"
+if str(ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts"))
+
+import piw  # noqa: E402
 
 
 def run_cli(*argv: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -32,6 +38,14 @@ def make_workflow(root: Path) -> Path:
 
 
 class JsonErrorEnvelopeTests(unittest.TestCase):
+    def test_argparse_near_match_accepts_python_312_unquoted_choices(self) -> None:
+        parser = piw.PiwArgumentParser(prog="piw")
+        with mock.patch.object(sys, "argv", ["piw", "runn", "--json"]):
+            with self.assertRaises(SystemExit), mock.patch("sys.stdout", new_callable=io.StringIO) as output:
+                parser.error("argument command: invalid choice: 'runn' (choose from run, resume, validate)")
+        payload = json.loads(output.getvalue())
+        self.assertIn("did you mean 'run'", payload["error"]["message"])
+
     def test_unknown_workflow_emits_structured_error_on_stdout(self) -> None:
         done = run_cli("detail", "definitely-not-a-workflow", "--json")
         self.assertEqual(done.returncode, 2)
