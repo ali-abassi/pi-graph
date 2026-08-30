@@ -31,6 +31,21 @@ class VersionInfoTests(unittest.TestCase):
         versions = version_info.metadata_versions(ROOT)
         self.assertEqual(set(versions.values()), {authoritative})
 
+    def test_missing_toml_parser_is_reported_as_unknown_not_as_version_drift(self) -> None:
+        # Python 3.10 has no stdlib tomllib. Without the tomli backport the
+        # pyproject version is simply never read, and calling that a version
+        # mismatch failed identity on every 3.10 runner for a missing
+        # dependency rather than for real drift.
+        original = version_info.tomllib
+        version_info.tomllib = None
+        try:
+            _, drift = version_info.root_identity(ROOT)
+        finally:
+            version_info.tomllib = original
+        codes = [item["code"] for item in drift]
+        self.assertIn("metadata_toml_parser_unavailable", codes)
+        self.assertNotIn("metadata_version_mismatch", codes)
+
     def test_product_digest_is_content_bound_and_rejects_inventory_symlinks(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             product = Path(raw) / "product"

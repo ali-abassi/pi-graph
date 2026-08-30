@@ -26,8 +26,11 @@ from typing import Any
 
 try:
     import tomllib
-except ImportError:  # pragma: no cover - pi-graph requires Python 3.10
-    tomllib = None  # type: ignore[assignment]
+except ImportError:  # Python 3.10 has no tomllib; tomli is the same parser.
+    try:
+        import tomli as tomllib  # type: ignore[no-redef]
+    except ImportError:
+        tomllib = None  # type: ignore[assignment]
 
 VERSION_SCHEMA = "pi-graph.version.v1"
 INSTALL_SCHEMA = "pi-graph.install-manifest.v1"
@@ -281,6 +284,17 @@ def root_identity(root: Path | str, *, expected_install: bool = False) -> tuple[
     drift: list[dict[str, Any]] = []
     versions = metadata_versions(root)
     mismatched = {key: value for key, value in versions.items() if value != version}
+    if tomllib is None and mismatched.get("pyproject.toml", version) is None:
+        # Without a TOML parser the file was never read, so its version is
+        # unknown. Reporting that as a version mismatch claims an observation
+        # this process never made, and fails identity for a missing dependency
+        # rather than for drift.
+        mismatched.pop("pyproject.toml", None)
+        drift.append(_drift(
+            "metadata_toml_parser_unavailable",
+            "pyproject.toml version was not read because no TOML parser is available; "
+            "install tomli to verify it on Python 3.10",
+        ))
     if mismatched:
         drift.append(_drift(
             "metadata_version_mismatch", "package metadata does not match VERSION",

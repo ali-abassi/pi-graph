@@ -3,3 +3,5 @@
 PyYAML>=6,<7
 ruamel.yaml>=0.18,<0.19
 jsonschema>=4.23,<5
+# tomllib entered the stdlib in 3.11; identity checks need a parser before that.
+tomli>=2,<3; python_version < "3.11"
