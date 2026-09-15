@@ -24,18 +24,51 @@ per-node evidence.
 CLI coding agent — executes model nodes using the provider account you already
 pay for. Shell-only workflows need neither.
 
-## Install
+## First run: no model account needed
+
+Start with a two-step workflow that normalizes a name and produces a greeting.
+It runs locally without Pi, provider credentials, or paid calls:
+
+```bash
+git clone https://github.com/ali-abassi/pi-graph.git
+cd pi-graph
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+./bin/piw validate examples/workflows/01-hello-command/steps.yaml
+./bin/piw run examples/workflows/01-hello-command/steps.yaml --input Ada --json
+./bin/piw detail examples/workflows/01-hello-command/steps.yaml --step greet --io
+```
+
+The greeting artifact is `Hello, Ada!`. The run response includes its run ID;
+`detail` shows the latest run's evidence. Save that ID to inspect a specific run
+later. Outputs, failures, and execution state stay in the workflow's `runs/`
+directory.
+
+### Add model-backed steps when you need them
 
 ```bash
 npm install -g @earendil-works/pi-coding-agent   # model runtime
 pi                                                # then /login, pick provider, /exit
-git clone https://github.com/ali-abassi/pi-graph.git
-cd pi-graph && ./install.sh
+./install.sh                                      # from the clone above
 piw doctor                                        # installed piw, not ./bin/piw
 ```
 
 macOS/Linux · Python 3.10+ · Pi 0.80.10+ for model nodes ·
 `piw` installs from this clone, not npm · `./install.sh --uninstall` reverses it.
+
+### Choose the smallest useful surface
+
+| Your task | Start here |
+| --- | --- |
+| One command with no recovery or dependency needs | Run the command directly |
+| Ordered steps with checks and saved evidence | `validate` → `run` → `detail` |
+| Recover an interrupted run | `resume WORKFLOW RUN_ID` |
+| Process a corpus | Prove one input first, then `batch --limit` |
+| Inspect history visually | `ui WORKFLOW` |
+| Schedule recurring work | External scheduler adapter required; not bundled |
+
+The core is local execution and evidence. Studio, batch processing, and
+optimization build on that same runner; they are optional next steps.
 
 ## The loop
 
@@ -111,6 +144,11 @@ See [Deterministic workflow optimization](docs/optimization.md) and [`schemas/op
 
 Every node takes `gate:` (shell assertion, exit 0 passes), and optionally
 `needs:`, `retries:`, `judge:`, `schema:`, `when:`, `produces:`, `timeout:`.
+
+Shell and model timeouts terminate their owned process group, including tool
+children whose parent already exited. Cancellation is forwarded to active
+groups. A process that deliberately starts a new session, or an effect already
+sent to a remote service, is outside that local cleanup boundary.
 
 Pin a model as `provider/id` — the first two columns of `pi --list-models`,
 joined with a slash. A drifted model **fails the step** rather than silently

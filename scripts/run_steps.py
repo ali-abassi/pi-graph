@@ -219,31 +219,45 @@ def parse_pi_events(stdout: str) -> tuple[str, dict, bool, str, str | None]:
     return text, usage, True, "", actual_model
 
 
-def call_pi(cfg: dict, spec: dict, prompt: str, cwd: Path) -> tuple[str, dict, bool, str, int]:
-    """One pi invocation -> (text, usage, ok, detail, exit_code).
-    Flavors: completion (default, isolated) / tools allowlist / agent: true
-    (full default toolset + repo context files)."""
-    agent = bool(cfg.get("agent"))
-    cmd = list(PI_BASE)
-    if not agent:
-        cmd.append("--no-context-files")
+def _pi_context_flags(cfg: dict, spec: dict) -> list[str]:
+    if cfg.get("agent"):
+        return []
+    flags = ["--no-context-files"]
+    system = cfg["system"] if "system" in cfg else (spec.get("system") if "id" in cfg else None)
+    if system:
+        flags += ["--system-prompt", system]
+    return flags
+
+
+def _pi_tool_flags(cfg: dict) -> list[str]:
+    if cfg.get("tools"):
+        return ["--tools", cfg["tools"]]
+    return [] if cfg.get("agent") else ["--no-tools"]
+
+
+def _pi_command(cfg: dict, spec: dict, prompt: str) -> list[str]:
     model = cfg.get("model", spec.get("model"))
     if not model:
         raise SystemExit(f"step '{cfg.get('id', 'judge/qa')}': no model (set model here or top-level)")
+    cmd = list(PI_BASE)
     cmd += ["--model", model, "--thinking", str(cfg.get("thinking", spec.get("thinking", "medium")))]
-    system = cfg["system"] if "system" in cfg else (spec.get("system") if "id" in cfg else None)
-    if system and not agent:
-        cmd += ["--system-prompt", system]
-    tools = cfg.get("tools")
-    if tools:
-        cmd += ["--tools", tools]
-    elif not agent:
-        cmd.append("--no-tools")
-    cmd.append(prompt)
-    limit = cfg.get("timeout", 1800 if agent else 900)
+    return cmd + _pi_context_flags(cfg, spec) + _pi_tool_flags(cfg) + [prompt]
+
+
+def _pi_response_error(model: str, actual_model: str | None, text: str) -> str:
+    if "/" in model and actual_model != model:
+        return f"Pi model pin drifted: expected {model}, received {actual_model or 'missing'}"
+    if not text.strip():
+        return "empty output"
+    return ""
+
+
+def call_pi(cfg: dict, spec: dict, prompt: str, cwd: Path) -> tuple[str, dict, bool, str, int]:
+    """Run one owned Pi invocation and validate its pinned, settled response."""
+    cmd = _pi_command(cfg, spec, prompt)
+    limit = cfg.get("timeout", 1800 if cfg.get("agent") else 900)
     try:
-        proc = subprocess.run(cmd, cwd=cwd, text=True, capture_output=True,
-                              timeout=limit, check=False)
+        proc = run_process(cmd, cwd, limit)
     except subprocess.TimeoutExpired:
         # A slow or hung provider call is a failed ATTEMPT, not a dead step.
         # This used to escape past the retry loop and be caught by the generic
@@ -258,14 +272,11 @@ def call_pi(cfg: dict, spec: dict, prompt: str, cwd: Path) -> tuple[str, dict, b
         return text, usage, False, f"pi exit {proc.returncode}: {proc.stderr[-1500:]}", proc.returncode
     if not protocol_ok:
         return text, usage, False, protocol_detail, 0
-    if "/" in model and actual_model != model:
-        return text, usage, False, f"Pi model pin drifted: expected {model}, received {actual_model or 'missing'}", 0
-    if not text.strip():
-        return text, usage, False, "empty output", 0
-    return text, usage, True, "", 0
+    detail = _pi_response_error(cfg.get("model", spec.get("model")), actual_model, text)
+    return text, usage, not detail, detail, 0
 
 
-# Shell steps run in their own process group so a timeout can kill the whole
+# Shell and Pi calls run in their own process group so a timeout can kill the whole
 # tree. That also detaches them from the group `piw batch-cancel` terminates,
 # so the runner has to forward termination to its children itself.
 ACTIVE_GROUPS: set[int] = set()
@@ -288,6 +299,41 @@ def terminate_children() -> None:
         time.sleep(0.2)
         for pgid in groups:
             _kill_group(pgid, signal.SIGKILL)
+
+
+def _stop_process(proc: subprocess.Popen[str]) -> tuple[str, str]:
+    # setsid makes the PID a stable group ID, including after the leader exits.
+    _kill_group(proc.pid)
+    try:
+        proc.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+    finally:
+        # Pipe closure or leader exit does not prove every descendant stopped.
+        _kill_group(proc.pid, signal.SIGKILL)
+    return proc.communicate()
+
+
+def run_process(command: list[str], cwd: Path, timeout: int,
+                env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    """Capture one process group; retain ownership until timeout cleanup finishes."""
+    proc = subprocess.Popen(command, cwd=cwd, text=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            env=env, start_new_session=True)
+    with ACTIVE_GROUPS_LOCK:
+        ACTIVE_GROUPS.add(proc.pid)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        error.output, error.stderr = _stop_process(proc)
+        raise
+    except BaseException:
+        _stop_process(proc)
+        raise
+    finally:
+        with ACTIVE_GROUPS_LOCK:
+            ACTIVE_GROUPS.discard(proc.pid)
+    return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
 
 
 class ShellTimeout(Exception):
@@ -321,34 +367,10 @@ def run_shell(command: str, out_file: Path, run_dir: Path, step_id: str,
         # rather than relatively.
         "WORKFLOW_DIR": str(workflow_dir or cwd),
     }
-    # Own process group: on timeout, kill the whole tree. Without this a
-    # backgrounded child outlives the runner.
-    proc = subprocess.Popen(["bash", "-c", command], cwd=cwd, text=True,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            env=env, start_new_session=True)
     try:
-        pgid = os.getpgid(proc.pid)
-    except (ProcessLookupError, OSError):
-        pgid = proc.pid
-    with ACTIVE_GROUPS_LOCK:
-        ACTIVE_GROUPS.add(pgid)
-    try:
-        out, err = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            try:
-                out, err = proc.communicate(timeout=5)
-            except subprocess.TimeoutExpired:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                out, err = proc.communicate()
-        except (ProcessLookupError, PermissionError):
-            out, err = "", ""
-        raise ShellTimeout(timeout, (err or "")[-1500:])
-    finally:
-        with ACTIVE_GROUPS_LOCK:
-            ACTIVE_GROUPS.discard(pgid)
-    return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
+        return run_process(["bash", "-c", command], cwd, timeout, env)
+    except subprocess.TimeoutExpired as error:
+        raise ShellTimeout(timeout, (error.stderr or "")[-1500:]) from error
 
 
 def _gate_ok(gate: str, out_file: Path, run_dir: Path, step_id: str,
@@ -1083,7 +1105,7 @@ def write_ledger(runner: Runner, run_dir: Path) -> None:
 
 
 def _on_terminate(signum, _frame):  # noqa: ANN001 - stdlib signal handler API
-    """Forward termination to shell children before exiting.
+    """Forward termination to active subprocess groups before exiting.
 
     `piw batch-cancel` kills the item's process group; shell steps live in their
     own group so a timeout can kill their whole tree, which means they would
