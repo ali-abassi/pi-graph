@@ -245,11 +245,21 @@ function setGraphZoom(value) {
   app.zoom = Math.max(.6, Math.min(1.8, value));
   const svg = $("graph"); const width = Number(svg.dataset.baseWidth || 0), height = Number(svg.dataset.baseHeight || 0);
   $("graphViewport").classList.remove("fit");
-  if (width && height) { svg.setAttribute("width", width * app.zoom); svg.setAttribute("height", height * app.zoom); }
+  if (width && height) { svg.setAttribute("viewBox", `0 0 ${width} ${height}`); svg.setAttribute("width", width * app.zoom); svg.setAttribute("height", height * app.zoom); }
+}
+
+function fitSmallGraph() {
+  if (!app.byId.size || app.byId.size > 6) { $("graphViewport").classList.remove("fit"); return false; }
+  if (app.zoom !== 1) return false;
+  const svg = $("graph"), box = svg.getBBox(), padding = 24;
+  svg.setAttribute("viewBox", `${box.x - padding} ${box.y - padding} ${box.width + padding * 2} ${box.height + padding * 2}`);
+  $("graphViewport").classList.add("fit");
+  return true;
 }
 
 function revealNode(id) {
   const node = app.byId.get(id); if (!node) return;
+  if (fitSmallGraph()) return;
   const viewport = $("graphViewport");
   viewport.scrollTo({ left: Math.max(0, (node.x || 0) * app.zoom - viewport.clientWidth / 2 + 110 * app.zoom), top: Math.max(0, (node.y || 0) * app.zoom - viewport.clientHeight / 2 + 54 * app.zoom), behavior: "auto" });
 }
@@ -320,13 +330,27 @@ function syncRunRail() {
 function openRunRail() { const rail = $("runRail"); rail.classList.add("open"); rail.inert = false; rail.setAttribute("aria-hidden", "false"); $("railScrim").hidden = false; $("openRunsButton").setAttribute("aria-expanded", "true"); requestAnimationFrame(() => $("closeRunsButton").focus()); }
 function closeRunRail(restoreFocus = false) { const rail = $("runRail"); rail.classList.remove("open"); $("railScrim").hidden = true; $("openRunsButton").setAttribute("aria-expanded", "false"); syncRunRail(); if (restoreFocus && isMobileRail()) $("openRunsButton").focus(); }
 
+function validRunInput() {
+  if (!boot.graph.input?.required || $("workflowInput").value.trim()) return true;
+  setText("launchState", "Enter an input before starting this workflow.");
+  $("workflowInput").focus();
+  return false;
+}
+
+async function requestRun() {
+  const response = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json", "X-Piw-Token": boot.token }, body: JSON.stringify({ content: $("workflowInput").value }) });
+  const value = await response.json();
+  if (!response.ok) throw new Error(value.error || "Could not start run");
+  return value;
+}
+
 async function startRun() {
   if (app.polling) return;
+  if (!validRunInput()) return;
   app.stopped = false; clearTimeout(app.sessionTimer); app.sessionTimer = null;
   app.polling = true; $("launchButton").disabled = true; $("runButton").disabled = true; setText("launchState", "Starting the canonical runner…"); setGlobal("running", "Starting canonical run");
   try {
-    const response = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json", "X-Piw-Token": boot.token }, body: JSON.stringify({ content: $("workflowInput").value }) });
-    const value = await response.json(); if (!response.ok) throw new Error(value.error || "Could not start run");
+    const value = await requestRun();
     app.session = value.session; app.eventCount = 0; setText("launchState", `Run session ${value.session} started. Waiting for durable evidence…`); pollSession();
   } catch (error) {
     app.polling = false; $("launchButton").disabled = false; $("runButton").disabled = false; setText("launchState", error.message); setGlobal("failed", "Run could not start");

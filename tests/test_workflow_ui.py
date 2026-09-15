@@ -4,6 +4,7 @@ import contextlib
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import tempfile
@@ -76,6 +77,28 @@ def make_bundle(root: Path, run_id: str, workflow_bytes: bytes, step_ids: list[s
 
 
 class WorkflowUiTests(unittest.TestCase):
+    def test_git_monitor_socket_does_not_hide_completed_run(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            workflow = root / "steps.yaml"
+            workflow.write_text("version: 1\nworkflow: git-monitor\nsteps:\n  - id: only\n    cmd: echo ok\n")
+            run = make_bundle(root, "run-monitor", workflow.read_bytes(), ["only"], complete=True)
+            (run / ".git").mkdir()
+            with socket.socket(socket.AF_UNIX) as monitor:
+                monitor.bind(str(run / ".git" / "monitor.ipc"))
+                with studio(workflow) as base:
+                    payload = get_json(f"{base}/api/run?id=run-monitor")
+                    self.assertEqual(payload["run"]["integrity"], "durable")
+                    self.assertEqual(payload["graph"]["workflow"], "git-monitor")
+
+    def test_evidence_socket_outside_git_is_still_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            with socket.socket(socket.AF_UNIX) as artifact:
+                artifact.bind(str(root / "artifact.ipc"))
+                self.assertEqual(serve_workflow._evidence_guard(root),
+                                 "unsupported evidence file type: artifact.ipc")
+
     def test_studio_runs_the_canonical_engine_and_returns_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             workflow = Path(raw)

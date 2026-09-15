@@ -8,6 +8,7 @@ The UI is a view and run surface over the same ``steps.yaml`` and runner used by
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterator
 import datetime as dt
 import hashlib
 import json
@@ -179,24 +180,38 @@ def _fingerprinted_bytes(path: Path, record: dict, label: str) -> tuple[bytes | 
     return raw, None
 
 
+def _evidence_paths(run_dir: Path) -> Iterator[Path]:
+    for root, dirs, files in os.walk(run_dir, followlinks=False):
+        # Git's object database and monitor sockets are not displayed evidence.
+        if Path(root) == run_dir and ".git" in dirs:
+            dirs.remove(".git")
+        for name in [*dirs, *files]:
+            yield Path(root) / name
+
+
+def _evidence_size(path: Path, run_dir: Path) -> int:
+    info = path.lstat()
+    relative = path.relative_to(run_dir)
+    if stat.S_ISLNK(info.st_mode):
+        raise ValueError(f"unsafe evidence symlink: {relative}")
+    if stat.S_ISDIR(info.st_mode):
+        return 0
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError(f"unsupported evidence file type: {relative}")
+    if info.st_size > MAX_JSON_BYTES:
+        raise ValueError(f"evidence file exceeds read limit: {relative}")
+    return info.st_size
+
+
 def _evidence_guard(run_dir: Path) -> str | None:
     total = 0
     try:
-        for root, dirs, files in os.walk(run_dir, followlinks=False):
-            root_path = Path(root)
-            for name in [*dirs, *files]:
-                path = root_path / name
-                info = path.lstat()
-                if stat.S_ISLNK(info.st_mode):
-                    return f"unsafe evidence symlink: {path.relative_to(run_dir)}"
-                if stat.S_ISREG(info.st_mode):
-                    total += info.st_size
-                    if info.st_size > MAX_JSON_BYTES:
-                        return f"evidence file exceeds read limit: {path.relative_to(run_dir)}"
-                    if total > MAX_EVIDENCE_BYTES:
-                        return "run evidence exceeds cumulative read limit"
-                elif not stat.S_ISDIR(info.st_mode):
-                    return f"unsupported evidence file type: {path.relative_to(run_dir)}"
+        for path in _evidence_paths(run_dir):
+            total += _evidence_size(path, run_dir)
+            if total > MAX_EVIDENCE_BYTES:
+                return "run evidence exceeds cumulative read limit"
+    except ValueError as error:
+        return str(error)
     except OSError as error:
         return f"evidence inspection failed: {error}"
     return None
