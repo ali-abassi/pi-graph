@@ -89,12 +89,14 @@
           <div class="panel-name"><span class="proof-kicker">Execution graph</span><strong id="graphTitle">Workflow</strong></div>
           <label class="toolbar-search" for="nodeSearch"><span class="sr-only">Search graph nodes</span><span aria-hidden="true">⌕</span><input id="nodeSearch" type="search" autocomplete="off" placeholder="Find node"></label>
           <div class="toolbar-actions">
+            <button id="openNodeButton" class="quiet-button" type="button">Open node</button>
             <button id="zoomOutButton" class="quiet-button" type="button" aria-label="Zoom graph out">−</button>
             <button id="zoomInButton" class="quiet-button" type="button" aria-label="Zoom graph in">+</button>
             <button id="fitGraphButton" class="quiet-button" type="button">Fit</button>
             <button id="resetGraphButton" class="quiet-button" type="button">Reset</button>
           </div>
         </div>
+        <p class="graph-help">Click a node to read its prompt, command and output. Enter to open · Esc to close.</p>
         <div id="graphViewport" class="graph-viewport" tabindex="-1">
           <svg id="graph" role="group" aria-label="Workflow dependency graph. Use arrow keys to move between nodes."></svg>
           <div id="graphState" class="surface-state" role="status">
@@ -215,6 +217,23 @@ piw compare path/to/steps.yaml BASELINE_RUN CANDIDATE_RUN --json</pre>
     </aside>
   </main>
 
+  <dialog id="nodeReader" class="node-reader" aria-labelledby="readerTitle">
+    <header class="reader-header">
+      <div><p class="eyebrow">Node details</p><h2 id="readerTitle"></h2></div>
+      <form method="dialog"><button class="quiet-button" autofocus>Close <span aria-hidden="true">×</span></button></form>
+    </header>
+    <div class="reader-body">
+      <p id="readerRun" class="run-identity"></p>
+      <dl id="readerFacts" class="facts"></dl>
+      <section class="evidence-block">
+        <div class="block-label"><strong id="readerBodyLabel">Prompt template</strong><button id="copyReaderPrompt" class="copy-button" type="button">Copy</button></div>
+        <pre id="readerPrompt"></pre>
+      </section>
+      <details id="readerSentSection" class="reader-disclosure"><summary>Recorded model prompt · preview</summary><p class="muted-copy">Includes resolved inputs when recorded. Limited to the first 8,000 characters.</p><pre id="readerSent"></pre></details>
+      <details class="reader-disclosure"><summary>Recorded output · preview</summary><pre id="readerOutput"></pre></details>
+    </div>
+    <footer class="reader-footer"><span>Read-only run evidence</span><button id="readerEvidence" class="quiet-button" type="button">Open evidence inspector →</button></footer>
+  </dialog>
   <div id="copyFeedback" class="sr-only" role="status" aria-live="polite"></div>
   <script id="piw-boot" type="application/json">__PIW_BOOT__</script>
   <script src="/assets/app.js" defer></script>

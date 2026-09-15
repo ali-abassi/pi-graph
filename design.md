@@ -78,3 +78,13 @@ selection/tabs, Fit/zoom, launch feedback, and content overflow. Evaluation test
 cover unavailable evidence, passing/failed gates, schema failures, cached judges,
 malformed judge JSON, score thresholds and run-level QA. Active-agent critical
 review is used; no delegated or independent-human review is claimed.
+
+## Node reading — 2026-09-15
+
+**User-stated:** Node prompts and contents need a more obvious reading path.
+**Agent-selected working policy:** Preserve the graphite system. Single-click or
+Enter/Space on a graph node opens a native modal dialog; an Open node toolbar
+button provides a labeled alternative. Show the frozen prompt/command first,
+then disclosed recorded prompt and output. Use a 780px maximum reading window,
+full available width at390px, native focus containment, and Escape/Close recovery.
+Keep previews honestly labeled and retain the existing inspector for deeper evidence.

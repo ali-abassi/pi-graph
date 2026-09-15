@@ -242,3 +242,22 @@ textarea { width: 100%; min-height: 260px; resize: vertical; border: 1px solid v
   .evaluation-scope { display: none; }
   .tab { min-height: 48px; }
 }
+
+.graph-help { margin: 0; padding: 9px 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.5; }
+.node-reader { width: min(780px,calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: 0; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); color: var(--paper); overflow: auto; }
+.node-reader::backdrop { background: rgba(0,0,0,.72); }
+.reader-header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 22px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.reader-header h2 { margin: 5px 0 0; font-size: 24px; overflow-wrap: anywhere; }
+.reader-header button, .reader-footer button { min-height: 44px; }
+.reader-body { padding: 0 22px 22px; }
+.reader-body pre { max-height: none; font-size: 13px; }
+.reader-body .facts { margin: 14px 0; }
+.reader-disclosure { border-bottom: 1px solid var(--line); padding: 12px 0; }
+.reader-disclosure summary { cursor: pointer; padding: 10px 0; font-size: 14px; }
+.reader-footer { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+@media (max-width: 520px) {
+  .node-reader { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+  .reader-header, .reader-footer { padding: 14px; }
+  .reader-body { padding: 0 14px 14px; }
+  .toolbar-actions { flex-wrap: wrap; }
+}

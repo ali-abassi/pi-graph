@@ -572,6 +572,58 @@ function bind() {
   syncRunRail();
 }
 
+function openNodeReader() {
+  const node = app.byId.get(app.selectedNode);
+  if (!node) return;
+  const detail = app.detailById.get(node.id) || {};
+  setText("readerTitle", node.id);
+  setText("readerRun", app.selectedRun || "Workflow preview · no run selected");
+  renderReaderFacts(node);
+  renderReaderContent(node, detail);
+  $("nodeReader").dataset.nodeId = node.id;
+  $("nodeReader").dataset.runId = app.selectedRun || "";
+  $("nodeReader").querySelectorAll("details").forEach((section) => { section.open = false; });
+  $("nodeReader").showModal();
+  $("nodeReader").scrollTop = 0;
+}
+
+function renderReaderFacts(node) {
+  facts($("readerFacts"), [["Runtime", kindLabel(node.kind)], ["Model", node.model || "none"], ["Depends on", node.needs?.join(", ") || "root"]]);
+}
+
+function renderReaderContent(node, detail) {
+  setText("readerBodyLabel", node.kind === "command" ? "Command" : "Prompt template");
+  setText("readerPrompt", node.body || "No prompt or command declared.");
+  $("readerSentSection").hidden = node.kind === "command";
+  setText("readerSent", detail.sent || "No model prompt recorded for this run. Cached or skipped actions may not have one.");
+  setText("readerOutput", detail.output || "No output recorded for this action.");
+}
+
+function activateNodeReader(event) {
+  if (!event.target.closest(".node-card")) return;
+  if (event.type === "keydown" && !["Enter", " "].includes(event.key)) return;
+  openNodeReader();
+}
+
+async function readerEvidence() {
+  const runId = $("nodeReader").dataset.runId;
+  $("nodeReader").close();
+  if (runId && runId !== app.selectedRun) await selectRun(runId);
+  selectNode($("nodeReader").dataset.nodeId);
+  showTab("evidence", true);
+  $("panel-evidence").scrollIntoView({ block: "nearest" });
+}
+
+function bindNodeReader() {
+  $("nodeReader").addEventListener("keydown", (event) => event.stopPropagation());
+  $("graph").addEventListener("click", activateNodeReader);
+  $("graph").addEventListener("keydown", activateNodeReader);
+  $("openNodeButton").addEventListener("click", openNodeReader);
+  $("readerEvidence").addEventListener("click", readerEvidence);
+  $("copyReaderPrompt").addEventListener("click", () => copyText($("readerPrompt").textContent, "Prompt or command"));
+}
+
+bindNodeReader();
 bind();
 renderEmptyHistory();
 refreshRuns({ keepSelection: false });
