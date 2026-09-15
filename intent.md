@@ -1,16 +1,25 @@
 # Current outcome
 
-**User-stated, 2026-09-15:** Test Pi Graph end to end, make it easy for Codex to author complete workflows, and show complex working workflows in Studio.
+**User-stated, 2026-09-15:** Improve Studio's overall design, replace the orange
+look, and ensure evaluations exist for individual actions and overall runs.
 
-**Agent-selected scope:** Ship reusable operations analysis and incident planning examples. Demonstrate fan-out, fan-in, conditional routing, real bounded model completions, mechanically checked artifacts, failure isolation and recovery. Use labeled synthetic operations data; send no messages and change no external accounts.
+**Agent-selected scope:** Redesign the existing local workspace and expose the
+runner's actual gates, schemas, model-judge evidence and run QA. Preserve execution
+semantics and the lightweight local architecture.
 
 ## Acceptance
 
-- An agent can discover actions, author, strictly validate, run, inspect and visualize both examples using documented commands.
-- Parallel calculations and branch decisions are deterministic; model prose never controls execution or claims verified correctness.
-- One real model canary completes before further model runs. Every model response and ledger is inspected.
-- Invalid input fails before model execution; alternate routing and cached recovery are exercised.
-- Studio shows the real complex graph and persisted outcomes; final report is inspectable.
-- Focused checks and the repository verification script pass before delivery.
+- A coherent neutral visual system improves hierarchy, typography and legibility.
+- A selected run exposes per-action checks, outcomes and missing evaluation coverage.
+- Overall run QA is visibly distinct from execution success; absent/unparseable
+  evidence is never presented as a pass or a zero score.
+- The UI explains the existing author → validate → canary → inspect → compare process
+  and how to configure gates, judges and overall QA without fabricating reviews.
+- The real existing completed/failed runs remain inspectable and launch remains usable.
+- Desktop, 390px mobile, keyboard interactions, adverse states and focused evaluation
+  regressions pass, followed by the full repository gate.
 
-**Limits:** No calibrated semantic evaluation, hosted deployment, scheduler, worker fleet, external delivery or large-scale load claim.
+**Limits:** No new paid model calls or calibrated judge claim in this design pass.
+Model-score display is tested with explicitly labeled fixtures; existing real gates
+and execution records are used for runtime UI verification. No hosted deployment,
+external messages or global installation replacement.

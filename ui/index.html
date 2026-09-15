@@ -14,7 +14,7 @@
         <path fill-rule="evenodd" d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"/>
         <path d="M517.36 400H634.72V634.72H517.36Z"/>
       </svg>
-      <div><strong>graph</strong><span>EVIDENCE STUDIO</span></div>
+      <div><strong>graph</strong><span>Workflow studio</span></div>
     </div>
 
     <div id="globalState" class="global-state" data-status="idle" role="status" aria-live="polite">
@@ -34,7 +34,7 @@
     <aside id="runRail" class="run-rail" aria-label="Durable run history">
       <div class="rail-heading">
         <div>
-          <p class="eyebrow">DURABLE HISTORY</p>
+          <p class="eyebrow">Workspace</p>
           <h2>Runs</h2>
         </div>
         <button id="closeRunsButton" class="mobile-only icon-button" type="button" aria-label="Close run history">×</button>
@@ -58,14 +58,16 @@
 
       <section id="runContext" class="run-context" aria-labelledby="contextRunId" aria-busy="true">
         <div class="context-primary">
-          <p class="eyebrow">SELECTED PROOF</p>
+          <p class="eyebrow">Selected workflow</p>
           <div class="context-title-row">
             <span id="contextStatusGlyph" class="status-glyph" aria-hidden="true">○</span>
             <h1 id="contextRunId">Loading durable runs…</h1>
             <span id="contextStatus" class="text-status">loading</span>
           </div>
+          <p id="contextRunKey" class="run-identity"></p>
           <p id="contextMessage" class="context-message">The graph will hydrate from the selected run’s frozen snapshot.</p>
         </div>
+        <details class="provenance"><summary>Run provenance</summary>
         <dl class="context-facts" aria-label="Run facts">
           <div><dt>Progress</dt><dd id="contextProgress">—</dd></div>
           <div><dt>Integrity</dt><dd id="contextIntegrity">—</dd></div>
@@ -74,6 +76,7 @@
           <div class="digest-fact"><dt>Workflow digest</dt><dd id="contextWorkflowHash">—</dd></div>
           <div class="digest-fact"><dt>Input digest</dt><dd id="contextInputHash">—</dd></div>
         </dl>
+        </details>
         <div id="resumeBox" class="resume-box" hidden>
           <div><strong>Interrupted run is resumable</strong><span id="resumeReason">Copy the canonical command and run it in your terminal.</span></div>
           <code id="resumeCommand"></code>
@@ -83,7 +86,7 @@
 
       <section class="graph-panel" aria-labelledby="graphTitle">
         <div class="panel-toolbar">
-          <div class="panel-name"><span class="proof-kicker">FROZEN PROOF GRAPH</span><strong id="graphTitle">Workflow</strong></div>
+          <div class="panel-name"><span class="proof-kicker">Execution graph</span><strong id="graphTitle">Workflow</strong></div>
           <label class="toolbar-search" for="nodeSearch"><span class="sr-only">Search graph nodes</span><span aria-hidden="true">⌕</span><input id="nodeSearch" type="search" autocomplete="off" placeholder="Find node"></label>
           <div class="toolbar-actions">
             <button id="zoomOutButton" class="quiet-button" type="button" aria-label="Zoom graph out">−</button>
@@ -100,9 +103,52 @@
         </div>
       </section>
 
+      <section class="evaluation-panel" aria-labelledby="evaluationTitle">
+        <div class="panel-toolbar">
+          <div class="panel-name"><strong id="evaluationTitle">Evaluations</strong><span id="evaluationCoverage">No checks recorded</span></div>
+          <span class="evaluation-scope">Action checks + run review</span>
+        </div>
+        <p id="evaluationSummary" class="evaluation-summary"></p>
+        <div class="evaluation-columns" aria-hidden="true"><span>Action</span><span>Gate</span><span>Schema</span><span>Judge</span></div>
+        <div id="evaluationRows" class="evaluation-rows"></div>
+        <p id="evaluationEmpty" class="muted-copy">Choose a workflow to inspect its evaluation coverage.</p>
+        <div class="run-evaluation">
+          <div class="run-evaluation-heading"><strong>Overall run review</strong><span id="runEvaluationStatus"></span></div>
+          <p class="evaluation-summary">Execution success and semantic review are separate outcomes.</p>
+          <details><summary>Review evidence</summary><pre id="runEvaluationEvidence">No recorded review.</pre></details>
+        </div>
+        <details class="evaluation-setup">
+          <summary>Set up an evaluation process</summary>
+          <ol>
+            <li>Define an action’s output contract with a gate and optional schema.</li>
+            <li>Add a model judge for semantic criteria; calibrate it against human-labeled examples before trusting its score.</li>
+            <li>Add top-level QA to review the whole run. Keep its criteria separate from the generator.</li>
+            <li>Strictly validate, run one canary, and inspect every result. Compare changes on fixed inputs and a held-out set before promoting them.</li>
+          </ol>
+          <p>Edit the source YAML; evaluation settings apply to future runs. A completed run keeps its frozen contract.</p>
+          <pre>steps:
+  - id: draft
+    prompt: "Produce the requested artifact from {input}"
+    gate: 'test -s "$OUT"' # Replace with a task-specific assertion
+    judge:
+      model: openai-codex/gpt-5.6-terra
+      prompt: 'Apply your frozen rubric to {out}. Return {"score": N, "feedback": "evidence"}.'
+      score: 8.5
+      max_iters: 1
+qa:
+  model: openai-codex/gpt-5.6-terra
+  prompt: 'Check the run against your frozen acceptance criteria. Return {"verdict":"pass|fail","issues":[]}. {artifacts}'</pre>
+          <p>This is a configuration sketch, not a calibrated rubric. Replace the criteria and gate before running. Judges and QA make additional model calls.</p>
+          <pre>piw validate path/to/steps.yaml --strict --json
+piw run path/to/steps.yaml --input-file case.txt --json
+piw detail path/to/steps.yaml RUN_ID --step draft --io --json
+piw compare path/to/steps.yaml BASELINE_RUN CANDIDATE_RUN --json</pre>
+        </details>
+      </section>
+
       <section class="trace-panel" aria-labelledby="traceTitle">
         <div class="panel-toolbar trace-toolbar">
-          <div class="panel-name"><span class="proof-kicker">COMMITTED EVIDENCE</span><strong id="traceTitle">Trace</strong></div>
+          <div class="panel-name"><span class="proof-kicker">Run activity</span><strong id="traceTitle">Trace</strong></div>
           <label class="toolbar-search" for="traceSearch"><span class="sr-only">Filter committed trace</span><span aria-hidden="true">⌕</span><input id="traceSearch" type="search" autocomplete="off" placeholder="Filter type, node, payload"></label>
           <span id="traceBound" class="bound-label">0 committed</span>
         </div>
@@ -135,7 +181,7 @@
       </section>
 
       <section id="panel-evidence" class="inspector-panel" role="tabpanel" aria-labelledby="tab-evidence" tabindex="0" hidden>
-        <div class="inspector-heading"><div><p class="eyebrow">RECORDED ARTIFACT</p><h2 id="evidenceNodeName">No node selected</h2></div><button id="copyOutput" class="copy-button" type="button" aria-label="Copy node output">Copy output</button></div>
+        <div class="inspector-heading"><div><p class="eyebrow">Action output</p><h2 id="evidenceNodeName">No node selected</h2></div><button id="copyOutput" class="copy-button" type="button" aria-label="Copy node output">Copy output</button></div>
         <dl id="evidenceFacts" class="facts"></dl>
         <div class="evidence-block"><div class="block-label"><span>Output</span><span id="outputBound">—</span></div><pre id="nodeOutput">No recorded output.</pre></div>
         <div class="evidence-block"><div class="block-label"><span>stderr</span></div><pre id="nodeStderr">No recorded stderr.</pre></div>
@@ -155,13 +201,13 @@
       </section>
 
       <section id="panel-new" class="inspector-panel" role="tabpanel" aria-labelledby="tab-new" tabindex="0" hidden>
-        <p class="eyebrow">CANONICAL LAUNCH</p>
+        <p class="eyebrow">New execution</p>
         <h2>Start a new run</h2>
         <p id="inputDescription" class="muted-copy">This calls the existing runner. The browser does not schedule or resume work.</p>
         <label for="workflowInput">Immutable run input</label>
         <textarea id="workflowInput" spellcheck="false" placeholder="Paste the input this run should freeze…"></textarea>
         <div class="input-foot"><span id="inputBytes">0 B</span><span>saved as input.txt when provided</span></div>
-        <button id="launchButton" class="run-button wide-button" type="button"><span aria-hidden="true">▶</span><span>Start canonical run</span></button>
+        <button id="launchButton" class="run-button wide-button" type="button"><span aria-hidden="true">▶</span><span>Start run</span></button>
         <div id="launchState" class="launch-state" role="status" aria-live="polite">Ready. Run evidence appears only after it is durably committed.</div>
       </section>
 

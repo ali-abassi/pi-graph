@@ -46,6 +46,7 @@
     "test:examples": "PY=$([ -x .venv/bin/python ] && echo .venv/bin/python || echo python3); $PY scripts/run_example_suite.py --validate-only",
     "test:extension": "node --experimental-strip-types --test extensions/pi-graph.test.mjs",
     "test": "PY=$([ -x .venv/bin/python ] && echo .venv/bin/python || echo python3); $PY -m unittest discover -s tests -v && npm run test:extension",
-    "verify": "./scripts/check.sh"
+    "verify": "./scripts/check.sh",
+    "test:ui": "node --test ui/evaluations.test.mjs"
   }
 }

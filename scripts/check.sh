@@ -34,6 +34,7 @@ step() {
 
 step "Unit tests"            "$python_bin" -m unittest discover -s tests
 step "Pi extension tests"    npm run --silent test:extension
+step "Studio evaluation tests" npm run --silent test:ui
 step "Typecheck"             npm run --silent check
 step "Validate every example" "$python_bin" scripts/run_example_suite.py --validate-only
 

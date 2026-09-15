@@ -26,6 +26,8 @@ pay for. Shell-only workflows need neither.
 
 See the [worked operations brief and incident-response graphs](examples/workflows/16-operations-brief/README.md) for a complete Codex authoring path: parallel analysis, real model steps, branching, an HTML report, and a second workflow consuming its output.
 
+Studio shows per-action gates, schemas and judge results alongside an overall run review. See the [evaluation process](docs/evaluations.md) for configuration, calibration, caching and evidence rules.
+
 ## First run: no model account needed
 
 Start with a two-step workflow that normalizes a name and produces a greeting.

@@ -19,6 +19,119 @@ const app = {
   refreshing: false, selectionGeneration: 0, zoom: 1, sessionTimer: null, stopped: false,
 };
 
+function parseEvaluationReport(text) {
+  if (!text) return null;
+  try { return JSON.parse(text.trim().replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "")); }
+  catch { return null; }
+}
+
+function evaluationResult(status, label, evidence = "") { return { status, label, evidence }; }
+
+function cachedSchema(detail, kind) { return kind === "schema" && detail.cached; }
+
+function mechanicalEvidence(node, detail, kind) {
+  if (cachedSchema(detail, kind)) return "The runner rechecks gates on cache hits, but does not rerun the schema check.";
+  return detail.failure || (typeof node[kind] === "string" ? node[kind] : JSON.stringify(node[kind]));
+}
+
+function mechanicalPassed(detail, kind) {
+  if (cachedSchema(detail, kind)) return false;
+  const laterFailures = { gate: ["schema_failed", "judge_below_target"], schema: ["judge_below_target"] };
+  return recordedExecutionPassed(detail) || laterFailures[kind].includes(detail.failure_kind);
+}
+
+function recordedExecutionPassed(detail) {
+  if (detail.cached) return true;
+  return detail.status === "passed" && detail.attempts > 0;
+}
+
+function mechanicalResult(passed, evidence) {
+  return evaluationResult(passed ? "passed" : "not_evaluated", passed ? "Passed" : "Not evaluated", evidence);
+}
+
+function mechanicalEvaluation(node, detail, kind) {
+  if (!node[kind]) return evaluationResult("not_configured", "Not configured");
+  if (detail.status === "skipped") return evaluationResult("skipped", "Skipped");
+  if (detail.failure_kind === `${kind}_failed`) return evaluationResult("failed", "Failed", detail.failure);
+  return mechanicalResult(mechanicalPassed(detail, kind), mechanicalEvidence(node, detail, kind));
+}
+
+function recordedJudgeScore(node, detail) {
+  const reports = (detail.judge_attempts || []).map((attempt) => parseEvaluationReport(attempt.judge));
+  if (!node.judge.keep_best) return reports.at(-1)?.score;
+  const scores = reports.map((report) => report?.score).filter(Number.isFinite);
+  return scores.length ? Math.max(...scores) : undefined;
+}
+
+function scoredEvaluation(node, detail) {
+  const score = recordedJudgeScore(node, detail), threshold = Number(node.judge.score ?? 8);
+  if (!Number.isFinite(score)) return evaluationResult("not_evaluated", "No valid score", "Inspect the raw judge evidence; no score is inferred.");
+  return evaluationResult(score >= threshold ? "passed" : "failed", `${score} / target ${threshold}`, "Model score; calibration is not established by this result.");
+}
+
+function judgeEvaluation(node, detail) {
+  if (!node.judge) return evaluationResult("not_configured", "Not configured");
+  if (detail.status === "skipped") return evaluationResult("skipped", "Skipped");
+  if (detail.cached) return evaluationResult("not_evaluated", "Cached output", "No fresh judge result is recorded in this run.");
+  return scoredEvaluation(node, detail);
+}
+
+function actionEvaluations(node, detail = {}) {
+  return { id: node.id, checks: [mechanicalEvaluation(node, detail, "gate"), mechanicalEvaluation(node, detail, "schema"), judgeEvaluation(node, detail)] };
+}
+
+function overallEvaluation(graph, detail = {}) {
+  if (!graph.has_qa) return evaluationResult("not_configured", "No run review configured", "Add a top-level qa block to evaluate the final run artifacts.");
+  const report = parseEvaluationReport(detail.qa);
+  if (report?.verdict === "pass") return evaluationResult("passed", "Run review passed", detail.qa);
+  if (report?.verdict === "fail") return evaluationResult("failed", "Run review failed", detail.qa);
+  return evaluationResult("not_evaluated", "Run review not evaluated", detail.qa || "No recorded QA result yet.");
+}
+
+function evaluationNodeStatus(step, graph, detail) {
+  if (step.kind !== "qa") return step.status || "not_run";
+  return { passed: "passed", failed: "failed" }[overallEvaluation(graph, detail).status] || "not_run";
+}
+
+function evaluationCoverage(rows) {
+  const checks = rows.flatMap((row) => row.checks).filter((check) => check.status !== "not_configured");
+  return { configured: checks.filter((check) => check.status !== "skipped").length, skipped: checks.filter((check) => check.status === "skipped").length, passed: checks.filter((check) => check.status === "passed").length,
+    failed: checks.filter((check) => check.status === "failed").length,
+    pending: checks.filter((check) => check.status === "not_evaluated").length };
+}
+
+function evaluationBadge(check) {
+  const badge = document.createElement("span"); badge.className = "evaluation-result";
+  badge.dataset.status = check.status; badge.textContent = check.label; badge.title = check.evidence;
+  return badge;
+}
+
+function evaluationRow(row) {
+  const button = document.createElement("button"); button.type = "button"; button.className = "evaluation-row";
+  const name = document.createElement("strong"); name.textContent = row.id;
+  button.append(name, ...row.checks.map(evaluationBadge));
+  button.setAttribute("aria-label", `${row.id}: gate ${row.checks[0].label}, schema ${row.checks[1].label}, judge ${row.checks[2].label}. Inspect evidence`);
+  button.addEventListener("click", () => { selectNode(row.id); showTab("evidence", true); });
+  return button;
+}
+
+function evaluationHeadline(rows, coverage) {
+  if (!coverage.configured) return `${rows.length} actions · no applicable checks`;
+  return `${rows.length} actions · ${coverage.passed}/${coverage.configured} checks passed`;
+}
+
+function renderEvaluations() {
+  const graph = app.graph || { nodes: [] };
+  const rows = graph.nodes.filter((node) => !node.synthetic).map((node) => actionEvaluations(node, app.detailById.get(node.id)));
+  const coverage = evaluationCoverage(rows), overall = overallEvaluation(graph, app.payload?.detail);
+  setText("evaluationCoverage", evaluationHeadline(rows, coverage));
+  setText("evaluationSummary", `${coverage.failed} failed · ${coverage.pending} not evaluated · ${coverage.skipped} skipped · unconfigured checks excluded`);
+  $("evaluationRows").replaceChildren(...rows.map(evaluationRow));
+  $("evaluationEmpty").hidden = rows.length > 0;
+  $("runEvaluationStatus").replaceChildren(evaluationBadge(overall));
+  setText("runEvaluationEvidence", overall.evidence);
+}
+
 function svgEl(name, attrs = {}, text = "") {
   const element = document.createElementNS(NS, name);
   for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, String(value));
@@ -31,6 +144,11 @@ function kindLabel(kind = "") { return ({ command: "COMMAND", completion: "LLM",
 function compactId(value, n = 26) { return value.length > n ? `${value.slice(0, n - 1)}…` : value; }
 function formatMoney(value) { const n = Number(value || 0); return n ? (n < .01 ? `$${n.toFixed(4)}` : `$${n.toFixed(3)}`) : "$0"; }
 function formatTime(value) { if (!value) return "time unavailable"; const date = new Date(value); return Number.isNaN(date.valueOf()) ? value : date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" }); }
+function formatHistoryTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return "Time unavailable";
+  return date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
 function stringify(value) { try { return JSON.stringify(value, null, 2); } catch { return String(value); } }
 function setText(id, value) { const element = $(id); if (element) element.textContent = value ?? "—"; }
 
@@ -88,11 +206,11 @@ function renderRunList() {
     button.setAttribute("role", "option"); button.setAttribute("aria-selected", String(run.id === app.selectedRun));
     const status = runStatus(run); const [glyph, label] = statusParts(status);
     const top = document.createElement("span"); top.className = "run-row-top";
-    const id = document.createElement("strong"); id.textContent = run.id;
+    const id = document.createElement("strong"); id.textContent = run.id.replace(/-\d{8}-\d{6}$/, ""); id.title = run.id;
     const state = document.createElement("span"); state.className = "run-row-status"; state.dataset.status = status; state.textContent = `${glyph} ${label}`;
     top.append(id, state);
     const meta = document.createElement("span"); meta.className = "run-row-meta";
-    meta.textContent = `${run.terminal}/${run.total} terminal · ${formatTime(run.updated_at)}`;
+    meta.textContent = `${run.terminal}/${run.total} finished · ${formatHistoryTime(run.updated_at)}`;
     button.append(top, meta);
     if (run.degraded_reason) { const reason = document.createElement("span"); reason.className = "run-row-reason"; reason.textContent = run.degraded_reason; button.append(reason); }
     button.addEventListener("click", () => selectRun(run.id));
@@ -138,51 +256,100 @@ async function refreshRuns({ keepSelection = true } = {}) {
 
 function renderEmptyHistory() {
   app.payload = null; app.selectedRun = null; app.graph = boot.graph; app.detailById.clear(); app.states.clear();
-  setText("contextRunId", "No run selected"); setText("contextStatus", "empty"); setText("contextMessage", "Inspect the current workflow graph or start a canonical run. No evidence is fabricated.");
+  setText("contextRunKey", ""); setText("contextRunId", "No run selected"); setText("contextStatus", "empty"); setText("contextMessage", "Inspect the current workflow graph or start a canonical run. No evidence is fabricated.");
   for (const id of ["contextProgress", "contextIntegrity", "contextTrace", "contextResumes", "contextWorkflowHash", "contextInputHash"]) setText(id, "—");
   $("resumeBox").hidden = true; setText("mobileRunId", "No run selected");
-  renderGraph(); renderTrace(); selectNode(app.graph?.nodes?.[0]?.id || null); requestAnimationFrame(() => revealNode(app.selectedNode));
+  renderEvaluations(); renderGraph(); renderTrace(); selectNode(app.graph?.nodes?.[0]?.id || null); requestAnimationFrame(() => revealNode(app.selectedNode));
   $("graphState").hidden = Boolean(app.graph?.nodes?.length);
   if (!$("graphState").hidden) $("graphState").replaceChildren(Object.assign(document.createElement("strong"), { textContent: "No graph available" }));
 }
 
-async function selectRun(runId, updateUrl = true) {
+function beginRunSelection(runId) {
   const generation = ++app.selectionGeneration;
   app.selectedRun = runId; app.selectedNode = null; app.selectedTrace = null; app.traceShown = TRACE_PAGE;
   renderRunList(); $("runContext").setAttribute("aria-busy", "true"); setGlobal("loading", `Opening ${runId}`); showError("");
+  return generation;
+}
+
+function selectionIsCurrent(runId, generation) {
+  return generation === app.selectionGeneration && app.selectedRun === runId;
+}
+
+async function fetchRunSnapshot(runId) {
+  const response = await fetch(`/api/run?id=${encodeURIComponent(runId)}`, { cache: "no-store" });
+  const value = await response.json();
+  if (!response.ok) throw new Error(value.error || `run detail returned ${response.status}`);
+  return value;
+}
+
+function installRunSnapshot(value) {
+  app.payload = value; app.graph = value.graph || { workflow: "Unavailable", nodes: [], edges: [] };
+  const steps = (value.detail?.steps || []).map((step) => ({ ...step, status: evaluationNodeStatus(step, app.graph, value.detail) }));
+  app.detailById = new Map(steps.map((step) => [step.id, step]));
+  app.states = new Map(steps.map((step) => [step.id, step.status || "not_run"]));
+}
+
+function updateRunLocation(runId) {
+  const url = new URL(location.href); url.searchParams.set("run", runId); history.replaceState({}, "", url);
+}
+
+function renderSelectedRun(value) {
+  renderContext(); renderEvaluations(); renderGraph(); renderTrace(); renderInput();
+  selectNode(app.graph.nodes?.[0]?.id || null); requestAnimationFrame(() => revealNode(app.selectedNode));
+  if (value.trace?.length) selectTrace(value.trace[value.trace.length - 1], false);
+  setGlobal(runStatus(value.run), `${value.run.id} · ${statusParts(runStatus(value.run))[1]}`);
+}
+
+function runSelectionError(runId, generation, error) {
+  if (!selectionIsCurrent(runId, generation)) return;
+  showError(error.message); setGlobal("degraded", `Could not open ${runId}`);
+  setText("contextMessage", "The selected evidence could not be read safely. Refresh or inspect the run directory in the terminal.");
+}
+
+function finishRunSelection(runId, generation) {
+  if (!selectionIsCurrent(runId, generation)) return;
+  $("runContext").setAttribute("aria-busy", "false"); closeRunRail();
+}
+
+async function selectRun(runId, updateUrl = true) {
+  const generation = beginRunSelection(runId);
   try {
-    const response = await fetch(`/api/run?id=${encodeURIComponent(runId)}`, { cache: "no-store" });
-    const value = await response.json();
-    if (!response.ok) throw new Error(value.error || `run detail returned ${response.status}`);
-    if (generation !== app.selectionGeneration || app.selectedRun !== runId) return;
-    app.payload = value; app.graph = value.graph || { workflow: "Unavailable", nodes: [], edges: [] };
-    app.detailById = new Map((value.detail?.steps || []).map((step) => [step.id, step]));
-    app.states = new Map((value.detail?.steps || []).map((step) => [step.id, step.status || "not_run"]));
-    if (updateUrl) { const url = new URL(location.href); url.searchParams.set("run", runId); history.replaceState({}, "", url); }
-    renderContext(); renderGraph(); renderTrace(); renderInput();
-    selectNode(app.graph.nodes?.[0]?.id || null); requestAnimationFrame(() => revealNode(app.selectedNode));
-    if (value.trace?.length) selectTrace(value.trace[value.trace.length - 1], false);
-    setGlobal(runStatus(value.run), `${runId} · ${statusParts(runStatus(value.run))[1]}`);
+    const value = await fetchRunSnapshot(runId);
+    if (!selectionIsCurrent(runId, generation)) return;
+    installRunSnapshot(value);
+    if (updateUrl) updateRunLocation(runId);
+    renderSelectedRun(value);
   } catch (error) {
-    if (generation !== app.selectionGeneration) return;
-    showError(error.message); setGlobal("degraded", `Could not open ${runId}`);
-    setText("contextMessage", "The selected evidence could not be read safely. Refresh or inspect the run directory in the terminal.");
+    runSelectionError(runId, generation, error);
   } finally {
-    if (generation === app.selectionGeneration) { $("runContext").setAttribute("aria-busy", "false"); closeRunRail(); }
+    finishRunSelection(runId, generation);
   }
 }
 
-function renderContext() {
-  const run = app.payload.run; const status = runStatus(run); const [glyph, label] = statusParts(status);
-  setText("contextStatusGlyph", glyph); setText("contextRunId", run.id); setText("mobileRunId", run.id); setText("contextStatus", label);
-  setText("contextProgress", `${run.terminal}/${run.total} terminal`); setText("contextIntegrity", run.integrity); setText("contextTrace", `${run.trace_seq} events`); setText("contextResumes", run.resume_count);
-  setText("contextWorkflowHash", run.workflow?.sha256 ? compactId(run.workflow.sha256, 17) : "unavailable");
-  setText("contextInputHash", run.input?.sha256 ? compactId(run.input.sha256, 17) : (run.input === null ? "none" : "unavailable"));
-  if (run.integrity === "degraded") setText("contextMessage", `Evidence is degraded: ${run.degraded_reason || "bundle validation failed"}`);
-  else if (run.legacy) setText("contextMessage", "Legacy evidence is readable, but it has no durable trace boundary or crash-resume guarantee.");
-  else setText("contextMessage", `Frozen workflow snapshot · updated ${formatTime(run.updated_at)}${run.drift?.length ? ` · ${run.drift.length} audited source drift event(s)` : ""}`);
+function contextMessage(run) {
+  if (run.integrity === "degraded") return `Evidence is degraded: ${run.degraded_reason || "bundle validation failed"}`;
+  if (run.legacy) return "Legacy run: no durable trace or crash-resume guarantee.";
+  return `Saved snapshot · updated ${formatTime(run.updated_at)}`;
+}
+
+function renderProvenance(run) {
+  setText("contextProgress", `${run.terminal}/${run.total} terminal`); setText("contextIntegrity", run.integrity);
+  setText("contextTrace", `${run.trace_seq} events`); setText("contextResumes", run.resume_count);
+  setText("contextWorkflowHash", run.workflow?.sha256 || "unavailable");
+  setText("contextInputHash", run.input?.sha256 || "none recorded");
+}
+
+function renderResume() {
   $("resumeBox").hidden = !app.payload.resume?.eligible;
   setText("resumeReason", app.payload.resume?.reason || ""); setText("resumeCommand", app.payload.resume?.command || "");
+}
+
+function renderContext() {
+  const run = app.payload.run, status = runStatus(run), [glyph, label] = statusParts(status);
+  $("runContext").dataset.status = status;
+  setText("contextStatusGlyph", glyph); setText("contextRunId", app.graph.workflow || run.id);
+  setText("contextRunKey", run.id); setText("mobileRunId", run.id); setText("contextStatus", label);
+  setText("contextMessage", contextMessage(run)); renderProvenance(run); renderResume();
 }
 
 function nodeBadges(node) {
@@ -249,7 +416,7 @@ function setGraphZoom(value) {
 }
 
 function fitSmallGraph() {
-  if (!app.byId.size || app.byId.size > 6) { $("graphViewport").classList.remove("fit"); return false; }
+  if (!app.byId.size || app.byId.size > 16) { $("graphViewport").classList.remove("fit"); return false; }
   if (app.zoom !== 1) return false;
   fitGraphContents();
   return true;
