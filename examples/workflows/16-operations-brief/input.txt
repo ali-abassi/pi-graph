@@ -1,0 +1,6 @@
+{"service": "checkout", "requests": 10000, "errors": 500, "revenue_cents": 1250000, "tickets": 48, "note": "Synthetic service window for demonstration"}
+{"service": "search", "requests": 20000, "errors": 100, "revenue_cents": 0, "tickets": 12, "note": "Synthetic service window for demonstration"}
+{"service": "accounts", "requests": 8000, "errors": 40, "revenue_cents": 0, "tickets": 9, "note": "Synthetic service window for demonstration"}
+{"service": "billing", "requests": 5000, "errors": 150, "revenue_cents": 850000, "tickets": 31, "note": "Synthetic service window for demonstration"}
+{"service": "catalog", "requests": 15000, "errors": 50, "revenue_cents": 0, "tickets": 6, "note": "Synthetic service window for demonstration"}
+{"service": "mobile", "requests": 12000, "errors": 720, "revenue_cents": 420000, "tickets": 64, "note": "Synthetic service window for demonstration"}

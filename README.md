@@ -24,6 +24,8 @@ per-node evidence.
 CLI coding agent — executes model nodes using the provider account you already
 pay for. Shell-only workflows need neither.
 
+See the [worked operations brief and incident-response graphs](examples/workflows/16-operations-brief/README.md) for a complete Codex authoring path: parallel analysis, real model steps, branching, an HTML report, and a second workflow consuming its output.
+
 ## First run: no model account needed
 
 Start with a two-step workflow that normalizes a name and produces a greeting.

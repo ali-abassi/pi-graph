@@ -1,0 +1,48 @@
+version: 1
+workflow: incident-response
+workers: 3
+input:
+  required: true
+  description: The facts object from an operations report
+steps:
+- id: facts
+  needs: []
+  cmd: cat "$INPUT"
+  gate: python3 -c 'import json,os; x=json.load(open(os.environ["OUT"])); assert type(x["reliability"]["escalate"])
+    is bool; assert x["reliability"]["error_percent"] >= 0'
+- id: triage
+  needs:
+  - facts
+  cmd: python3 "$WORKFLOW_DIR/report.py" triage
+  gate: python3 -c 'import json,os; assert isinstance(json.load(open(os.environ["OUT"])),dict)'
+  timeout: 20
+- id: timeline
+  needs:
+  - triage
+  - facts
+  cmd: python3 "$WORKFLOW_DIR/report.py" timeline
+  gate: python3 -c 'import json,os; assert isinstance(json.load(open(os.environ["OUT"])),dict)'
+  timeout: 20
+- id: ownership
+  needs:
+  - triage
+  - facts
+  cmd: python3 "$WORKFLOW_DIR/report.py" ownership
+  gate: python3 -c 'import json,os; assert isinstance(json.load(open(os.environ["OUT"])),dict)'
+  timeout: 20
+- id: communications
+  needs:
+  - triage
+  - facts
+  cmd: python3 "$WORKFLOW_DIR/report.py" communications
+  gate: python3 -c 'import json,os; assert isinstance(json.load(open(os.environ["OUT"])),dict)'
+  timeout: 20
+- id: packet
+  needs:
+  - triage
+  - timeline
+  - ownership
+  - communications
+  cmd: python3 "$WORKFLOW_DIR/report.py" packet
+  gate: python3 -c 'import json,os; assert isinstance(json.load(open(os.environ["OUT"])),dict)'
+  timeout: 20

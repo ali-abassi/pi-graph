@@ -1,19 +1,16 @@
 # Current outcome
 
-**Agent-selected working policy, 2026-09-15:** Harden timeout cleanup for shell
-and model processes, and make the first successful run require no model account.
+**User-stated, 2026-09-15:** Test Pi Graph end to end, make it easy for Codex to author complete workflows, and show complex working workflows in Studio.
 
-## Acceptance criteria
+**Agent-selected scope:** Ship reusable operations analysis and incident planning examples. Demonstrate fan-out, fan-in, conditional routing, real bounded model completions, mechanically checked artifacts, failure isolation and recovery. Use labeled synthetic operations data; send no messages and change no external accounts.
 
-- A timed-out shell or model attempt terminates descendants in its owned POSIX
-  process group even after the leader exits, including children ignoring TERM.
-- Timeout cleanup preserves diagnostics and existing failure/retry semantics.
-- Cancellation reaches model processes through the existing child registry.
-- Successful subprocess stdout, stderr, and exit codes remain intact.
-- The README starts with a runnable shell-only example and clearly identifies
-  model setup and external scheduling as optional boundaries.
-- Focused real-subprocess regressions and the repository verification script pass.
+## Acceptance
 
-**Observed limits:** POSIX process groups do not contain deliberately detached
-sessions or remote effects. No paid model evaluation, hosted deployment, or
-new UI is part of this candidate.
+- An agent can discover actions, author, strictly validate, run, inspect and visualize both examples using documented commands.
+- Parallel calculations and branch decisions are deterministic; model prose never controls execution or claims verified correctness.
+- One real model canary completes before further model runs. Every model response and ledger is inspected.
+- Invalid input fails before model execution; alternate routing and cached recovery are exercised.
+- Studio shows the real complex graph and persisted outcomes; final report is inspectable.
+- Focused checks and the repository verification script pass before delivery.
+
+**Limits:** No calibrated semantic evaluation, hosted deployment, scheduler, worker fleet, external delivery or large-scale load claim.

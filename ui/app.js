@@ -251,10 +251,14 @@ function setGraphZoom(value) {
 function fitSmallGraph() {
   if (!app.byId.size || app.byId.size > 6) { $("graphViewport").classList.remove("fit"); return false; }
   if (app.zoom !== 1) return false;
+  fitGraphContents();
+  return true;
+}
+
+function fitGraphContents() {
   const svg = $("graph"), box = svg.getBBox(), padding = 24;
   svg.setAttribute("viewBox", `${box.x - padding} ${box.y - padding} ${box.width + padding * 2} ${box.height + padding * 2}`);
   $("graphViewport").classList.add("fit");
-  return true;
 }
 
 function revealNode(id) {
@@ -385,7 +389,7 @@ function bind() {
   $("refreshButton").addEventListener("click", () => refreshRuns()); $("runSearch").addEventListener("input", renderRunList); $("nodeSearch").addEventListener("input", () => applyNodeSearch(true));
   $("traceSearch").addEventListener("input", () => { app.traceShown = TRACE_PAGE; renderTrace(); }); $("loadMoreTrace").addEventListener("click", () => { app.traceShown += TRACE_PAGE; renderTrace(); });
   $("zoomOutButton").addEventListener("click", () => setGraphZoom(app.zoom - .15)); $("zoomInButton").addEventListener("click", () => setGraphZoom(app.zoom + .15));
-  $("fitGraphButton").addEventListener("click", () => { if ((app.graph?.nodes?.length || 0) <= 50) $("graphViewport").classList.add("fit"); else { setGraphZoom(.85); revealNode(app.selectedNode || app.graph.nodes[0]?.id); setText("copyFeedback", "Large graph fitted to the selected node; search or arrow keys move through the DAG"); } });
+  $("fitGraphButton").addEventListener("click", () => { if ((app.graph?.nodes?.length || 0) <= 50) fitGraphContents(); else { setGraphZoom(.85); revealNode(app.selectedNode || app.graph.nodes[0]?.id); setText("copyFeedback", "Large graph fitted to the selected node; search or arrow keys move through the DAG"); } });
   $("resetGraphButton").addEventListener("click", () => { setGraphZoom(1); $("graphViewport").scrollTo({ left: 0, top: 0, behavior: "smooth" }); });
   $("openRunsButton").addEventListener("click", openRunRail); $("closeRunsButton").addEventListener("click", () => closeRunRail(true)); $("railScrim").addEventListener("click", () => closeRunRail(true));
   $("copyResume").addEventListener("click", () => copyText($("resumeCommand").textContent, "Resume command")); $("copyDeclaration").addEventListener("click", () => copyText($("nodeDeclaration").textContent, "Declaration"));
